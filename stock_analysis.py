@@ -128,7 +128,7 @@ BG     = "#F1F5F9"
 # ─────────────────────────────────────────────
 #  SHARED HELPERS
 # ─────────────────────────────────────────────
-def draw_page_header(fig, title, subtitle, right_text=None, right_color=NAVY, logo_img=None):
+def draw_page_header(fig, title, subtitle, right_text=None, right_color=NAVY, logo_img=None, title_fontsize=22):
     """White header band with left accent stripe and bold bottom border."""
     ax_h = fig.add_axes([0, 0.925, 1, 0.075])
     ax_h.set_facecolor(WHITE)
@@ -157,7 +157,7 @@ def draw_page_header(fig, title, subtitle, right_text=None, right_color=NAVY, lo
         except Exception:
             title_x = 0.020
 
-    ax_h.text(title_x, 0.68, title, color=NAVY, fontsize=22, fontweight="bold",
+    ax_h.text(title_x, 0.68, title, color=NAVY, fontsize=title_fontsize, fontweight="bold",
               transform=ax_h.transAxes, va="center")
     ax_h.text(title_x, 0.22, subtitle, color=GRAY_D, fontsize=11,
               transform=ax_h.transAxes, va="center")
@@ -992,9 +992,10 @@ def build_ticker_page(ticker, df, result, page_num, total_pages, pdf):
     # ── HEADER ──────────────────────────────────────────────
     logo_img = fetch_ticker_logo(ticker)
     draw_page_header(fig,
-        title    = company,
-        subtitle = f"{ticker}   ·   {result['date']}   ·   Period: {PERIOD}",
-        logo_img = logo_img)
+        title          = company,
+        subtitle       = f"{ticker}   ·   {result['date']}   ·   Period: {PERIOD}",
+        logo_img       = logo_img,
+        title_fontsize = 17)
     add_page_footer(fig, f"Page {page_num} of {total_pages}   ·   {ticker}")
 
     ax_h  = fig.axes[0]
@@ -1045,8 +1046,8 @@ def build_ticker_page(ticker, df, result, page_num, total_pages, pdf):
     ax1.plot(df.index, df["Close"],          "#2563EB", lw=1.6, label="Close",       zorder=3)
     ax1.plot(df.index, df[f"MA{MA_SHORT}"],  "#F59E0B", lw=1.1, label=f"MA{MA_SHORT}", ls="--")
     ax1.plot(df.index, df[f"MA{MA_LONG}"],   "#DC2626", lw=1.1, label=f"MA{MA_LONG}",  ls="--")
-    ax1.plot(df.index, df["BB_Upper"],       "#94A3B8", lw=0.7, ls=":", label="BB")
-    ax1.plot(df.index, df["BB_Lower"],       "#94A3B8", lw=0.7, ls=":")
+    ax1.plot(df.index, df["BB_Upper"],       "#475569", lw=1.5, ls="--", label="BB Upper")
+    ax1.plot(df.index, df["BB_Lower"],       "#475569", lw=1.5, ls="--", label="BB Lower")
     ax1.fill_between(df.index, df["BB_Upper"], df["BB_Lower"], alpha=0.05, color="#94A3B8")
     leg1 = ax1.legend(loc="upper left", fontsize=7, framealpha=0.9, ncol=3, handlelength=2.5)
     for h in leg1.legend_handles: h.set_linewidth(2.0)
@@ -1073,6 +1074,10 @@ def build_ticker_page(ticker, df, result, page_num, total_pages, pdf):
     ax3.fill_between(df.index, df["RSI"], 70, where=(df["RSI"] >= 70), alpha=0.12, color=RED)
     ax3.fill_between(df.index, df["RSI"], 30, where=(df["RSI"] <= 30), alpha=0.12, color=GREEN)
     ax3.set_ylim(0, 100)
+    ax3.text(0.99, 70, "Overbought", transform=ax3.get_yaxis_transform(),
+             fontsize=6.5, color=RED, ha="right", va="bottom", fontstyle="italic")
+    ax3.text(0.99, 30, "Oversold",   transform=ax3.get_yaxis_transform(),
+             fontsize=6.5, color=GREEN, ha="right", va="top",    fontstyle="italic")
     ax3.legend(fontsize=7, loc="upper left", ncol=2)
 
     # Chart 4 — MACD
