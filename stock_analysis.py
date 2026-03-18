@@ -88,6 +88,17 @@ SECTOR_COLORS = {
     "Meme":     "#B91C1C",
 }
 
+# Display names for ticker pages
+TICKER_NAMES = {
+    "NVDA": "NVIDIA Corporation",
+    "PLTR": "Palantir Technologies",
+    "MSTR": "MicroStrategy",
+    "IBM":  "IBM Corporation",
+    "MU":   "Micron Technology",
+    "XLF":  "Financial Select SPDR",
+    "SMHX": "VanEck Semi ETF (Hdg)",
+}
+
 # Sector label + pill color for each individual ticker page
 TICKER_SECTOR_MAP = {
     "NVDA": ("Semiconductors",  "#7C3AED"),
@@ -408,6 +419,67 @@ def fetch_price_series(symbol_map):
 
 
 # ─────────────────────────────────────────────
+#  RATING + OUTLOOK HELPERS
+# ─────────────────────────────────────────────
+def score_to_rating(score):
+    """Convert numeric score to (stars, advisory_label, color)."""
+    if score >= 4:    return 5, "STRONG BUY",  GREEN
+    elif score >= 2:  return 4, "BUY",          "#16A34A"
+    elif score >= 0:  return 3, "HOLD",          AMBER
+    elif score >= -2: return 2, "SELL",          "#EA580C"
+    else:             return 1, "STRONG SELL",   RED
+
+
+def _build_outlook_text(result, df):
+    """Generate a 2–3 sentence outlook summary from indicator signals."""
+    score   = result["score"]
+    signals = result["signals"]
+    rsi_val = round(float(df["RSI"].iloc[-1]), 1)
+
+    if score >= 4:
+        tone = "The technical setup is strongly bullish with broad indicator agreement."
+    elif score >= 2:
+        tone = "Indicators lean bullish with more buy signals than sell signals."
+    elif score >= 0:
+        tone = "The technical picture is mixed — no clear directional conviction."
+    elif score >= -2:
+        tone = "Indicators lean bearish with more sell signals than buy signals."
+    else:
+        tone = "The technical setup is broadly bearish across key indicators."
+
+    if rsi_val >= 70:
+        rsi_txt = f"RSI at {rsi_val} is overbought — momentum is extended and a pullback is possible."
+    elif rsi_val <= 30:
+        rsi_txt = f"RSI at {rsi_val} is oversold — a relief bounce may be near."
+    elif rsi_val >= 55:
+        rsi_txt = f"RSI at {rsi_val} shows positive momentum without being overbought."
+    elif rsi_val <= 45:
+        rsi_txt = f"RSI at {rsi_val} reflects mild bearish pressure."
+    else:
+        rsi_txt = f"RSI at {rsi_val} sits in neutral territory."
+
+    vol_sig = next((s for s in signals if s[1] == "Volume"), None)
+    if vol_sig and "BUY" in vol_sig[0]:
+        vol_txt = "Volume confirms the move with strong participation."
+    elif vol_sig and "SELL" in vol_sig[0]:
+        vol_txt = "Volume shows heavy selling conviction on the decline."
+    else:
+        vol_txt = "Volume is near average — no strong conviction either way."
+
+    return f"{tone} {rsi_txt} {vol_txt}"
+
+
+def fetch_ticker_news(ticker, max_items=3):
+    """Return list of recent news dicts {title, source} for the ticker."""
+    try:
+        items = yf.Ticker(ticker).news or []
+        return [{"title": i.get("title", ""), "source": i.get("publisher", "")}
+                for i in items[:max_items] if i.get("title")]
+    except Exception:
+        return []
+
+
+# ─────────────────────────────────────────────
 #  FETCH & ANALYZE TICKER
 # ─────────────────────────────────────────────
 def fetch_and_analyze(ticker):
@@ -430,6 +502,13 @@ def fetch_and_analyze(ticker):
     df["BB_Upper"]      = bb.bollinger_hband()
     df["BB_Mid"]        = bb.bollinger_mavg()
     df["BB_Lower"]      = bb.bollinger_lband()
+    try:
+        adx_ind         = ta_lib.trend.ADXIndicator(high=df["High"], low=df["Low"], close=df["Close"], window=14)
+        df["ADX"]       = adx_ind.adx()
+        df["ADX_pos"]   = adx_ind.adx_pos()
+        df["ADX_neg"]   = adx_ind.adx_neg()
+    except Exception:
+        pass
     df.dropna(inplace=True)
 
     latest = df.iloc[-1]
@@ -472,6 +551,30 @@ def fetch_and_analyze(ticker):
         signals.append(("🔴 SELL",    "Bollinger Bands", f"Above upper band")); score -= 1
     else:
         signals.append(("⚪ NEUTRAL", "Bollinger Bands", f"Inside bands"))
+
+    # Volume signal
+    if "Volume" in df.columns:
+        vol_ma20  = df["Volume"].rolling(20).mean()
+        vol_ratio = float(df["Volume"].iloc[-1]) / max(float(vol_ma20.iloc[-1]), 1)
+        price_up  = float(df["Close"].iloc[-1]) > float(df["Close"].iloc[-2])
+        if vol_ratio >= 1.3 and price_up:
+            signals.append(("✅ BUY",     "Volume", f"High-vol up day ({vol_ratio:.1f}× avg)")); score += 1
+        elif vol_ratio >= 1.3 and not price_up:
+            signals.append(("🔴 SELL",    "Volume", f"High-vol down day ({vol_ratio:.1f}× avg)")); score -= 1
+        else:
+            signals.append(("⚪ NEUTRAL", "Volume", f"Volume {vol_ratio:.1f}× 20-day avg"))
+
+    # ADX signal
+    if "ADX" in df.columns:
+        adx_val = round(float(df["ADX"].iloc[-1]), 1)
+        pos_val = float(df["ADX_pos"].iloc[-1])
+        neg_val = float(df["ADX_neg"].iloc[-1])
+        if adx_val >= 25 and pos_val > neg_val:
+            signals.append(("✅ BUY",     "ADX", f"Strong uptrend (ADX={adx_val})")); score += 1
+        elif adx_val >= 25 and pos_val < neg_val:
+            signals.append(("🔴 SELL",    "ADX", f"Strong downtrend (ADX={adx_val})")); score -= 1
+        else:
+            signals.append(("⚪ NEUTRAL", "ADX", f"No strong trend (ADX={adx_val})"))
 
     verdict = "📈 BULLISH" if score >= 2 else ("📉 BEARISH" if score <= -2 else "📊 MIXED")
     return df, {"ticker": ticker, "score": score, "verdict": verdict,
@@ -873,128 +976,239 @@ def build_market_overview_page(data, symbol_map, page_title, subtitle, color_key
 #  PAGES 4+: INDIVIDUAL TICKER CHARTS
 # ─────────────────────────────────────────────
 def build_ticker_page(ticker, df, result, page_num, total_pages, pdf):
-    score       = result["score"]
-    verdict     = result["verdict"]
-    badge_color = GREEN if score >= 2 else (RED if score <= -2 else AMBER)
-
+    score                  = result["score"]
+    stars, advisory, adv_color = score_to_rating(score)
     price      = result["price"]
     prev_close = float(df.iloc[-2]["Close"])
-    chg_pct    = (price - prev_close) / prev_close * 100
+    chg_abs    = price - prev_close
+    chg_pct    = chg_abs / prev_close * 100
     chg_sign   = "+" if chg_pct >= 0 else ""
+    chg_color  = GREEN if chg_pct >= 0 else RED
+    company    = TICKER_NAMES.get(ticker, ticker)
 
     fig = plt.figure(figsize=(16, 14))
     fig.patch.set_facecolor(BG)
-    chg_color = GREEN if chg_pct >= 0 else RED
 
+    # ── HEADER ──────────────────────────────────────────────
     logo_img = fetch_ticker_logo(ticker)
     draw_page_header(fig,
-        title    = ticker,
-        subtitle = f"Technical Analysis   ·   {result['date']}   ·   Period: {PERIOD}",
+        title    = company,
+        subtitle = f"{ticker}   ·   {result['date']}   ·   Period: {PERIOD}",
         logo_img = logo_img)
     add_page_footer(fig, f"Page {page_num} of {total_pages}   ·   {ticker}")
 
-    # Price + % change injected into header — shift right when logo present
-    ax_h     = fig.axes[0]
-    price_x  = 0.30 if logo_img is not None else 0.24
-    pct_x    = 0.42 if logo_img is not None else 0.36
-    ax_h.text(price_x, 0.68, f"${price:,.2f}",
-              color=NAVY, fontsize=17, fontweight="bold",
+    ax_h  = fig.axes[0]
+    px    = 0.32 if logo_img is not None else 0.26
+    ax_h.text(px,        0.68, f"${price:,.2f}",
+              color=NAVY,      fontsize=15, fontweight="bold",
               transform=ax_h.transAxes, va="center")
-    ax_h.text(pct_x, 0.68, f"{chg_sign}{chg_pct:.2f}%",
-              color=chg_color, fontsize=17, fontweight="bold",
+    ax_h.text(px + 0.11, 0.68, f"{chg_sign}${abs(chg_abs):.2f}",
+              color=chg_color, fontsize=13, fontweight="bold",
+              transform=ax_h.transAxes, va="center")
+    ax_h.text(px + 0.21, 0.68, f"{chg_sign}{chg_pct:.2f}%",
+              color=chg_color, fontsize=13, fontweight="bold",
               transform=ax_h.transAxes, va="center")
 
-    # Sector pill — centered directly under the daily % change text
+    # Sector pill centered under % change
     sector_label, sector_color = TICKER_SECTOR_MAP.get(ticker, ("Equity", GRAY_D))
-    sect_w   = len(sector_label) * 0.0058 + 0.022
-    pct_center = pct_x + 0.025        # approximate center of the % change text
-    sect_x   = pct_center - sect_w / 2
+    sect_w     = len(sector_label) * 0.0058 + 0.022
+    pct_center = px + 0.21 + 0.025
+    sect_x     = pct_center - sect_w / 2
     ax_h.add_patch(FancyBboxPatch(
         (sect_x, 0.10), sect_w, 0.32,
-        boxstyle="round,pad=0.003",
-        facecolor=sector_color, alpha=0.15,
+        boxstyle="round,pad=0.003", facecolor=sector_color, alpha=0.15,
         edgecolor=sector_color, linewidth=0.8,
         transform=ax_h.transAxes, zorder=3, clip_on=False))
     ax_h.text(pct_center, 0.26, sector_label,
               color=sector_color, fontsize=9, fontweight="bold",
               transform=ax_h.transAxes, va="center", ha="center", zorder=4)
 
-    # Score + verdict badges overlaid on the right side of the header
-    verdict_label = verdict.replace("📈 ", "").replace("📉 ", "").replace("📊 ", "")
-    ax_b = fig.add_axes([0.58, 0.925, 0.41, 0.075])
-    ax_b.set_xlim(0, 1); ax_b.set_ylim(0, 1)
-    ax_b.axis("off")
-    ax_b.set_facecolor(WHITE)
-    ax_b.patch.set_visible(True)
-
-    # Score pill
-    ax_b.add_patch(FancyBboxPatch((0.01, 0.14), 0.28, 0.72,
-                                  boxstyle="round,pad=0.003",
-                                  facecolor=badge_color, alpha=0.14,
-                                  edgecolor=badge_color, linewidth=0.9, zorder=2))
-    ax_b.text(0.15, 0.52, f"Score  {score:+d}",
-              color=badge_color, fontsize=12, fontweight="bold",
-              va="center", ha="center", zorder=3)
-
-    # Verdict pill
-    ax_b.add_patch(FancyBboxPatch((0.32, 0.14), 0.66, 0.72,
-                                  boxstyle="round,pad=0.003",
-                                  facecolor=badge_color, alpha=0.14,
-                                  edgecolor=badge_color, linewidth=0.9, zorder=2))
-    ax_b.text(0.65, 0.52, verdict_label,
-              color=badge_color, fontsize=13, fontweight="bold",
-              va="center", ha="center", zorder=3)
-
-    gs = gridspec.GridSpec(4, 1, figure=fig, top=0.905, bottom=0.05,
-                           hspace=0.48, height_ratios=[3, 1, 1, 1])
+    # ── BODY: 5-row × 2-col grid ────────────────────────────
+    gs = gridspec.GridSpec(5, 2, figure=fig,
+                           top=0.910, bottom=0.05,
+                           left=0.06, right=0.97,
+                           hspace=0.50, wspace=0.10,
+                           width_ratios=[1.1, 0.9],
+                           height_ratios=[2.5, 1, 1, 1, 1])
 
     def style_ax(ax, title):
         ax.set_facecolor("#FAFAFA")
-        ax.set_title(title, fontsize=11, color=NAVY, pad=6, loc="left")
-        ax.grid(True, alpha=0.25, color=GRAY_M)
-        ax.tick_params(labelsize=9, colors=GRAY_D)
-        for spine in ax.spines.values():
-            spine.set_edgecolor(GRAY_M)
-            spine.set_linewidth(0.6)
+        ax.set_title(title, fontsize=9, color=NAVY, pad=4, loc="left", fontweight="bold")
+        ax.grid(True, alpha=0.20, color=GRAY_M)
+        ax.tick_params(labelsize=7.5, colors=GRAY_D)
+        for sp in ax.spines.values():
+            sp.set_edgecolor(GRAY_M); sp.set_linewidth(0.5)
 
-    ax1 = fig.add_subplot(gs[0])
-    style_ax(ax1, "Price   ·   Moving Averages   ·   Bollinger Bands")
-    ax1.plot(df.index, df["Close"],         color="#2563EB", linewidth=1.6, label="Close", zorder=3)
-    ax1.plot(df.index, df[f"MA{MA_SHORT}"], color="#F59E0B", linewidth=1.2, label=f"MA{MA_SHORT}", linestyle="--")
-    ax1.plot(df.index, df[f"MA{MA_LONG}"],  color="#DC2626", linewidth=1.2, label=f"MA{MA_LONG}",  linestyle="--")
-    ax1.plot(df.index, df["BB_Upper"],      color="#94A3B8", linewidth=0.8, label="BB Upper", linestyle=":")
-    ax1.plot(df.index, df["BB_Lower"],      color="#94A3B8", linewidth=0.8, label="BB Lower", linestyle=":")
-    ax1.fill_between(df.index, df["BB_Upper"], df["BB_Lower"], alpha=0.06, color="#94A3B8")
-    ax1.set_ylabel("Price ($)", fontsize=10, color=GRAY_D)
-    ax1.legend(loc="upper left", fontsize=8, framealpha=0.9)
+    # Chart 1 — Price + MA + BB
+    ax1 = fig.add_subplot(gs[0, 0])
+    style_ax(ax1, "Price  ·  MA50 / MA200  ·  Bollinger Bands")
+    ax1.plot(df.index, df["Close"],          "#2563EB", lw=1.6, label="Close",       zorder=3)
+    ax1.plot(df.index, df[f"MA{MA_SHORT}"],  "#F59E0B", lw=1.1, label=f"MA{MA_SHORT}", ls="--")
+    ax1.plot(df.index, df[f"MA{MA_LONG}"],   "#DC2626", lw=1.1, label=f"MA{MA_LONG}",  ls="--")
+    ax1.plot(df.index, df["BB_Upper"],       "#94A3B8", lw=0.7, ls=":", label="BB")
+    ax1.plot(df.index, df["BB_Lower"],       "#94A3B8", lw=0.7, ls=":")
+    ax1.fill_between(df.index, df["BB_Upper"], df["BB_Lower"], alpha=0.05, color="#94A3B8")
+    leg1 = ax1.legend(loc="upper left", fontsize=7, framealpha=0.9, ncol=3, handlelength=2.5)
+    for h in leg1.legend_handles: h.set_linewidth(2.0)
 
-    ax2 = fig.add_subplot(gs[1], sharex=ax1)
-    style_ax(ax2, "RSI — Relative Strength Index")
-    ax2.plot(df.index, df["RSI"], color="#7C3AED", linewidth=1.3, label="RSI")
-    ax2.axhline(RSI_OVERBOUGHT, color=RED,   linestyle="--", linewidth=0.8, alpha=0.7)
-    ax2.axhline(RSI_OVERSOLD,   color=GREEN, linestyle="--", linewidth=0.8, alpha=0.7)
-    ax2.fill_between(df.index, df["RSI"], RSI_OVERBOUGHT, where=(df["RSI"]>=RSI_OVERBOUGHT), alpha=0.15, color=RED)
-    ax2.fill_between(df.index, df["RSI"], RSI_OVERSOLD,   where=(df["RSI"]<=RSI_OVERSOLD),   alpha=0.15, color=GREEN)
-    ax2.set_ylim(0, 100)
-    ax2.set_ylabel("RSI", fontsize=10, color=GRAY_D)
-    ax2.text(df.index[-1], RSI_OVERBOUGHT + 1, "Overbought", fontsize=7.5, color=RED,   ha="right", va="bottom")
-    ax2.text(df.index[-1], RSI_OVERSOLD   - 1, "Oversold",   fontsize=7.5, color=GREEN, ha="right", va="top")
+    # Chart 2 — Volume
+    ax2 = fig.add_subplot(gs[1, 0])
+    style_ax(ax2, "Volume")
+    vol_colors = [GREEN if c >= o else RED
+                  for c, o in zip(df["Close"], df["Open"])]
+    ax2.bar(df.index, df["Volume"], color=vol_colors, alpha=0.65, width=0.8)
+    ax2.plot(df.index, df["Volume"].rolling(20).mean(),
+             color=NAVY, lw=1.0, ls="--", label="20d avg")
+    ax2.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda x, _: f"{x/1e6:.0f}M"))
+    ax2.legend(fontsize=7, loc="upper left")
 
-    ax3 = fig.add_subplot(gs[2], sharex=ax1)
-    style_ax(ax3, "MACD")
-    ax3.plot(df.index, df["MACD"],        color="#2563EB", linewidth=1.3, label="MACD")
-    ax3.plot(df.index, df["MACD_Signal"], color=RED,       linewidth=1.0, label="Signal", linestyle="--")
-    ax3.bar(df.index, df["MACD_Hist"],
+    # Chart 3 — RSI
+    ax3 = fig.add_subplot(gs[2, 0])
+    style_ax(ax3, "RSI (14)")
+    ax3.plot(df.index, df["RSI"], "#7C3AED", lw=1.2)
+    ax3.axhline(70, color=RED,    lw=0.8, ls="--", alpha=0.7, label="70")
+    ax3.axhline(30, color=GREEN,  lw=0.8, ls="--", alpha=0.7, label="30")
+    ax3.axhline(50, color=GRAY_D, lw=0.5, ls=":",  alpha=0.4)
+    ax3.fill_between(df.index, df["RSI"], 70, where=(df["RSI"] >= 70), alpha=0.12, color=RED)
+    ax3.fill_between(df.index, df["RSI"], 30, where=(df["RSI"] <= 30), alpha=0.12, color=GREEN)
+    ax3.set_ylim(0, 100)
+    ax3.legend(fontsize=7, loc="upper left", ncol=2)
+
+    # Chart 4 — MACD
+    ax4 = fig.add_subplot(gs[3, 0])
+    style_ax(ax4, "MACD (12 / 26 / 9)")
+    ax4.plot(df.index, df["MACD"],        "#2563EB", lw=1.2, label="MACD")
+    ax4.plot(df.index, df["MACD_Signal"], "#F59E0B", lw=1.0, ls="--", label="Signal")
+    ax4.bar(df.index, df["MACD_Hist"],
             color=[GREEN if v >= 0 else RED for v in df["MACD_Hist"]],
-            alpha=0.45, width=1)
-    ax3.axhline(0, color=GRAY_D, linewidth=0.5)
-    ax3.set_ylabel("MACD", fontsize=10, color=GRAY_D)
-    ax3.legend(loc="upper left", fontsize=8, framealpha=0.9)
+            alpha=0.45, width=0.8)
+    ax4.axhline(0, color=GRAY_D, lw=0.5)
+    ax4.legend(fontsize=7, loc="upper left", ncol=2)
 
-    ax4 = fig.add_subplot(gs[3], sharex=ax1)
-    style_ax(ax4, "Volume")
-    ax4.bar(df.index, df["Volume"], color="#2563EB", alpha=0.45, width=1)
-    ax4.set_ylabel("Volume", fontsize=10, color=GRAY_D)
+    # Chart 5 — ADX
+    ax5 = fig.add_subplot(gs[4, 0])
+    style_ax(ax5, "ADX  ·  Trend Strength")
+    if "ADX" in df.columns:
+        ax5.plot(df.index, df["ADX"],     NAVY,  lw=1.4, label="ADX")
+        ax5.plot(df.index, df["ADX_pos"], GREEN, lw=1.0, ls="--", label="+DI")
+        ax5.plot(df.index, df["ADX_neg"], RED,   lw=1.0, ls="--", label="-DI")
+        ax5.axhline(25, color=AMBER, lw=0.8, ls=":", alpha=0.8, label="25")
+        ax5.legend(fontsize=7, loc="upper left", ncol=4)
+
+    # ── RIGHT PANEL — OUTLOOK ────────────────────────────────
+    ax_r = fig.add_subplot(gs[:, 1])
+    ax_r.set_xlim(0, 1); ax_r.set_ylim(0, 1)
+    ax_r.axis("off")
+    ax_r.add_patch(FancyBboxPatch((0, 0), 1, 1, boxstyle="square,pad=0",
+                                   facecolor=WHITE, edgecolor=GRAY_M,
+                                   linewidth=0.8, zorder=0))
+
+    lm, rm = 0.07, 0.93
+    y = 0.965
+
+    # Advisory badge
+    adv_w = len(advisory) * 0.036 + 0.08
+    adv_x = 0.5 - adv_w / 2
+    ax_r.add_patch(FancyBboxPatch((adv_x, y - 0.065), adv_w, 0.075,
+                                   boxstyle="round,pad=0.005",
+                                   facecolor=adv_color, alpha=0.18,
+                                   edgecolor=adv_color, linewidth=1.8, zorder=2))
+    ax_r.text(0.5, y - 0.028, advisory,
+              color=adv_color, fontsize=15, fontweight="bold",
+              va="center", ha="center", zorder=3)
+    y -= 0.085
+
+    # Stars
+    star_str = "★" * stars + "☆" * (5 - stars)
+    ax_r.text(0.5, y, star_str,
+              color=AMBER, fontsize=24, fontweight="bold",
+              va="center", ha="center", zorder=3)
+    y -= 0.048
+    ax_r.text(0.5, y, f"Score  {score:+d}   ·   {stars} / 5 stars",
+              color=GRAY_D, fontsize=8, va="center", ha="center", zorder=3)
+    y -= 0.026
+    ax_r.plot([lm, rm], [y, y], color=GRAY_M, lw=0.8)
+    y -= 0.022
+
+    # Outlook text
+    ax_r.add_patch(FancyBboxPatch((lm, y - 0.010), 0.004, 0.020,
+                                   boxstyle="square,pad=0",
+                                   facecolor=NAVY, edgecolor="none", zorder=2))
+    ax_r.text(lm + 0.013, y, "OUTLOOK",
+              color=NAVY, fontsize=9, fontweight="bold", va="center", zorder=3)
+    y -= 0.030
+    outlook = _build_outlook_text(result, df)
+    words, lines_out, line = outlook.split(), [], ""
+    for w in words:
+        test = (line + " " + w).strip()
+        if len(test) > 48:
+            lines_out.append(line); line = w
+        else:
+            line = test
+    if line: lines_out.append(line)
+    for lt in lines_out[:4]:
+        ax_r.text(lm, y, lt, color="#334155", fontsize=8, va="top", zorder=3)
+        y -= 0.030
+    y -= 0.008
+    ax_r.plot([lm, rm], [y, y], color=GRAY_M, lw=0.8)
+    y -= 0.022
+
+    # Indicator signals
+    ax_r.add_patch(FancyBboxPatch((lm, y - 0.010), 0.004, 0.020,
+                                   boxstyle="square,pad=0",
+                                   facecolor=NAVY, edgecolor="none", zorder=2))
+    ax_r.text(lm + 0.013, y, "INDICATOR SIGNALS",
+              color=NAVY, fontsize=9, fontweight="bold", va="center", zorder=3)
+    y -= 0.032
+
+    sig_colors = {"✅ BUY": GREEN, "🔴 SELL": RED,
+                  "⚪ NEUTRAL": GRAY_D, "⚡ ALERT": AMBER}
+    main_sigs = [s for s in result["signals"] if "ALERT" not in s[0]]
+    for sig_type, indicator, detail in main_sigs[:7]:
+        sc = sig_colors.get(sig_type, GRAY_D)
+        ax_r.add_patch(FancyBboxPatch((lm, y - 0.009), 0.016, 0.018,
+                                       boxstyle="round,pad=0.002",
+                                       facecolor=sc, alpha=0.20,
+                                       edgecolor=sc, linewidth=0.5, zorder=2))
+        ax_r.text(lm + 0.008, y, "●", color=sc, fontsize=7,
+                  va="center", ha="center", zorder=3)
+        ax_r.text(lm + 0.026, y + 0.006, indicator,
+                  color=NAVY, fontsize=8, fontweight="bold", va="center", zorder=3)
+        ax_r.text(lm + 0.026, y - 0.012, detail,
+                  color=GRAY_D, fontsize=7, va="center", zorder=3)
+        y -= 0.038
+    y -= 0.006
+    ax_r.plot([lm, rm], [y, y], color=GRAY_M, lw=0.8)
+    y -= 0.022
+
+    # Recent news
+    ax_r.add_patch(FancyBboxPatch((lm, y - 0.010), 0.004, 0.020,
+                                   boxstyle="square,pad=0",
+                                   facecolor=NAVY, edgecolor="none", zorder=2))
+    ax_r.text(lm + 0.013, y, "RECENT NEWS",
+              color=NAVY, fontsize=9, fontweight="bold", va="center", zorder=3)
+    y -= 0.030
+    card_h = 0.076
+    for item in fetch_ticker_news(ticker):
+        if y - card_h < 0.02:
+            break
+        title  = item.get("title", "")
+        source = item.get("source", "")
+        short  = title[:50] + "…" if len(title) > 53 else title
+        ax_r.add_patch(FancyBboxPatch((lm, y - card_h), 0.004, card_h,
+                                       boxstyle="square,pad=0",
+                                       facecolor=NAVY, edgecolor="none", zorder=2))
+        ax_r.add_patch(FancyBboxPatch((lm + 0.004, y - card_h), rm - lm - 0.004, card_h,
+                                       boxstyle="square,pad=0",
+                                       facecolor="#F8FAFC", edgecolor=GRAY_M,
+                                       linewidth=0.5, zorder=1))
+        cy = y - card_h / 2
+        ax_r.text(lm + 0.016, cy + 0.016, short,
+                  color="#1E293B", fontsize=7.5, va="center", zorder=3)
+        ax_r.text(lm + 0.016, cy - 0.016, source,
+                  color=GRAY_D, fontsize=7, fontweight="bold", va="center", zorder=3)
+        y -= (card_h + 0.010)
 
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
