@@ -964,18 +964,18 @@ def build_ticker_page(ticker, df, result, page_num, total_pages, pdf):
               color=chg_color, fontsize=17, fontweight="bold",
               transform=ax_h.transAxes, va="center")
 
-    # Sector pill — subtitle row, safely between subtitle text and score/verdict badges
-    # ax_b (score/verdict) starts at figure x=0.58 so pill must end before that
+    # Sector pill — centered directly under the daily % change text
     sector_label, sector_color = TICKER_SECTOR_MAP.get(ticker, ("Equity", GRAY_D))
-    sect_w = min(len(sector_label) * 0.0058 + 0.022, 0.13)  # cap width to stay clear of badges
-    sect_x = 0.44 if logo_img is not None else 0.37
+    sect_w   = len(sector_label) * 0.0058 + 0.022
+    pct_center = pct_x + 0.025        # approximate center of the % change text
+    sect_x   = pct_center - sect_w / 2
     ax_h.add_patch(FancyBboxPatch(
         (sect_x, 0.10), sect_w, 0.32,
         boxstyle="round,pad=0.003",
         facecolor=sector_color, alpha=0.15,
         edgecolor=sector_color, linewidth=0.8,
         transform=ax_h.transAxes, zorder=3, clip_on=False))
-    ax_h.text(sect_x + sect_w / 2, 0.26, sector_label,
+    ax_h.text(pct_center, 0.26, sector_label,
               color=sector_color, fontsize=9, fontweight="bold",
               transform=ax_h.transAxes, va="center", ha="center", zorder=4)
 
