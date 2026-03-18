@@ -88,6 +88,17 @@ SECTOR_COLORS = {
     "Meme":     "#B91C1C",
 }
 
+# Sector label + pill color for each individual ticker page
+TICKER_SECTOR_MAP = {
+    "NVDA": ("Semiconductors",  "#7C3AED"),
+    "PLTR": ("Software",        "#0369A1"),
+    "MSTR": ("Bitcoin Proxy",   "#F59E0B"),
+    "IBM":  ("IT Services",     "#1E40AF"),
+    "MU":   ("Semiconductors",  "#7C3AED"),
+    "SMHX": ("Semi ETF",        "#6B7280"),
+    "XLF":  ("Financials ETF",  "#059669"),
+}
+
 OUTPUT_DIR = os.path.expanduser("~/Financials")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -322,11 +333,73 @@ def fetch_crypto_news(max_headlines=5, max_per_source=2):
 # ─────────────────────────────────────────────
 #  FETCH COMPANY LOGO
 # ─────────────────────────────────────────────
+def _make_dollar_logo():
+    """Draw a green dollar-coin icon and return as numpy RGBA array."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    size = 256
+    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d    = ImageDraw.Draw(img)
+    # Coin body — green circle with a darker ring
+    d.ellipse([4, 4, size-4, size-4],   fill=(5, 150, 105, 255))
+    d.ellipse([14, 14, size-14, size-14], fill=(16, 185, 129, 255))
+    # Dollar sign drawn as thick strokes
+    cx, cy = size // 2, size // 2
+    bar_w, bar_h = 22, 110
+    d.rounded_rectangle([cx - bar_w//2, cy - bar_h//2, cx + bar_w//2, cy + bar_h//2],
+                         radius=8, fill=(255, 255, 255, 255))
+    # Top arc of S
+    d.arc([cx - 44, cy - 72, cx + 44, cy - 8], start=200, end=340, fill=(255,255,255,255), width=18)
+    # Bottom arc of S
+    d.arc([cx - 44, cy + 8, cx + 44, cy + 72], start=20,  end=160, fill=(255,255,255,255), width=18)
+    # Vertical bar through dollar sign
+    d.rectangle([cx - 7, cy - 82, cx + 7, cy + 82], fill=(255, 255, 255, 255))
+    print("  Logo XLF: ✅ (dollar coin)")
+    return np.array(img)
+
+
+def _make_chip_logo():
+    """Draw a semiconductor chip icon and return as numpy RGBA array."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    size  = 256
+    img   = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d     = ImageDraw.Draw(img)
+    bg, body, pin, inner = (30,41,59,255), (71,85,105,255), (148,163,184,255), (100,116,139,255)
+    # Background circle
+    d.ellipse([4, 4, size-4, size-4], fill=bg)
+    # Chip body
+    m = 58
+    d.rounded_rectangle([m, m, size-m, size-m], radius=8, fill=body)
+    # Pins — 3 per side
+    pw, ph, gap = 14, 10, 22
+    for i, offset in enumerate([72, 108, 144]):
+        d.rectangle([m-pw, offset-ph//2, m,      offset+ph//2], fill=pin)  # left
+        d.rectangle([size-m, offset-ph//2, size-m+pw, offset+ph//2], fill=pin)  # right
+        d.rectangle([offset-ph//2, m-pw, offset+ph//2, m],      fill=pin)  # top
+        d.rectangle([offset-ph//2, size-m, offset+ph//2, size-m+pw], fill=pin)  # bottom
+    # Inner circuit detail — grid lines
+    for off in [84, 108, 132, 156]:
+        d.line([m+10, off, size-m-10, off], fill=inner, width=2)
+        d.line([off, m+10, off, size-m-10], fill=inner, width=2)
+    # Center highlight square
+    c = size // 2
+    d.rounded_rectangle([c-20, c-20, c+20, c+20], radius=4, fill=(203,213,225,255))
+    print("  Logo SMHX: ✅ (chip icon)")
+    return np.array(img)
+
+
 def fetch_ticker_logo(ticker):
     """Return a numpy RGBA image array for the ticker's logo, or None.
     Uses a hardcoded domain map first, then falls back to yfinance website field.
     Fetches via Google's favicon service at 256 px."""
     import numpy as np
+
+    # Custom drawn icons for tickers without a usable web logo
+    if ticker == "XLF":
+        return _make_dollar_logo()
+    if ticker == "SMHX":
+        return _make_chip_logo()
 
     # Hardcoded domain map — most reliable, covers all current holdings
     DOMAIN_MAP = {
@@ -891,6 +964,20 @@ def build_ticker_page(ticker, df, result, page_num, total_pages, pdf):
               color=chg_color, fontsize=17, fontweight="bold",
               transform=ax_h.transAxes, va="center")
 
+    # Sector pill — bottom row of header, right of subtitle
+    sector_label, sector_color = TICKER_SECTOR_MAP.get(ticker, ("Equity", GRAY_D))
+    sect_w = len(sector_label) * 0.0058 + 0.022
+    sect_x = 0.53
+    ax_h.add_patch(FancyBboxPatch(
+        (sect_x, 0.10), sect_w, 0.32,
+        boxstyle="round,pad=0.003",
+        facecolor=sector_color, alpha=0.15,
+        edgecolor=sector_color, linewidth=0.8,
+        transform=ax_h.transAxes, zorder=3, clip_on=False))
+    ax_h.text(sect_x + sect_w / 2, 0.26, sector_label,
+              color=sector_color, fontsize=9, fontweight="bold",
+              transform=ax_h.transAxes, va="center", ha="center", zorder=4)
+
     # Score + verdict badges overlaid on the right side of the header
     verdict_label = verdict.replace("📈 ", "").replace("📉 ", "").replace("📊 ", "")
     ax_b = fig.add_axes([0.58, 0.925, 0.41, 0.075])
@@ -1062,3 +1149,14 @@ with PdfPages(pdf_file) as pdf:
                           page_num=page, total_pages=total_pages, pdf=pdf)
 
 print(f"\nReport saved: {pdf_file}  ({total_pages} pages)")
+
+# ── AUTO-SYNC TO GITHUB ──────────────────────────────────────
+import subprocess, datetime
+try:
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    subprocess.run(["git", "-C", OUTPUT_DIR, "add", "stock_analysis.py"], check=True)
+    subprocess.run(["git", "-C", OUTPUT_DIR, "commit", "-m", f"Auto-sync: {today}"], check=True)
+    subprocess.run(["git", "-C", OUTPUT_DIR, "push"], check=True)
+    print("GitHub synced ✅")
+except subprocess.CalledProcessError:
+    print("GitHub sync skipped (no changes or not configured)")
