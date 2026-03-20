@@ -70,16 +70,17 @@ def _rangeslider_off() -> dict:
 def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     """
     5-row subplot chart:
-      Row 1 (large): Candlestick + MA20/MA50 + Bollinger Bands
+      Row 1 (large): Candlestick + MA20/MA50 + Bollinger Bands + VWAP
       Row 2 (small): Volume bars
       Row 3 (small): RSI  (with overbought/oversold zones)
       Row 4 (small): MACD (histogram + lines)
       Row 5 (small): ADX  (+DI / -DI)
+    All timeframes show the full indicator set — get_chart_data ensures
+    enough warmup data is fetched even for short display windows.
     """
     if df is None or len(df) < 5:
         return _empty_chart("No data available")
 
-    # Subplot labels pinned to left so they don't overlap y-axis tick labels
     subplot_titles = ["", "VOLUME", "RSI (14)", "MACD (12,26,9)", "ADX (14)"]
 
     fig = make_subplots(
@@ -92,7 +93,7 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
 
     x = df.index
 
-    # ── Row 1: Candlestick + MAs + BBands ────────────────────────────────────
+    # ── Row 1: Candlestick + MAs + BBands + VWAP ─────────────────────────────
     fig.add_trace(go.Candlestick(
         x=x,
         open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
@@ -104,7 +105,6 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         hoverlabel=dict(bgcolor=C["bg_panel"]),
     ), row=1, col=1)
 
-    # Bollinger Bands (drawn before MAs so MAs sit on top)
     if "BB_Upper" in df.columns and "BB_Lower" in df.columns:
         fig.add_trace(go.Scatter(
             x=x, y=df["BB_Upper"], name="BB Upper",
@@ -120,7 +120,6 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
             hovertemplate="BB Lower: %{y:.2f}<extra></extra>",
         ), row=1, col=1)
 
-    # Moving Averages
     for ma_col, color, label, dash in [
         ("MA20",  CHART["ma20"],  "MA 20",  "solid"),
         ("MA50",  CHART["ma50"],  "MA 50",  "solid"),
@@ -134,7 +133,6 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
                 hovertemplate=f"{label}: %{{y:.2f}}<extra></extra>",
             ), row=1, col=1)
 
-    # VWAP (anchored to period start — key institutional reference line)
     if "VWAP" in df.columns:
         fig.add_trace(go.Scatter(
             x=x, y=df["VWAP"], name="VWAP",
@@ -143,7 +141,7 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
             hovertemplate="VWAP: %{y:.2f}<extra></extra>",
         ), row=1, col=1)
 
-    # ── Row 2: Volume + OBV overlay ───────────────────────────────────────────
+    # ── Row 2: Volume ─────────────────────────────────────────────────────────
     if "Volume" in df.columns:
         vol_colors = [
             CHART["volume_up"] if float(c) >= float(o) else CHART["volume_down"]
@@ -162,7 +160,6 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
                 hovertemplate="Vol MA20: %{y:,.0f}<extra></extra>",
             ), row=2, col=1)
 
-    # OBV — overlaid on volume panel with independent scale (right axis)
     if "OBV" in df.columns:
         fig.add_trace(go.Scatter(
             x=x, y=df["OBV"], name="OBV",
@@ -175,12 +172,10 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
 
     # ── Row 3: RSI ────────────────────────────────────────────────────────────
     if "RSI" in df.columns:
-        # Shaded zones
         fig.add_hrect(y0=70, y1=100, fillcolor="rgba(239,68,68,0.07)",
                       line_width=0, row=3, col=1)
         fig.add_hrect(y0=0,  y1=30,  fillcolor="rgba(34,197,94,0.07)",
                       line_width=0, row=3, col=1)
-        # Reference lines
         for lvl, col in [(70, CHART["candle_down"]), (30, CHART["candle_up"])]:
             fig.add_hline(y=lvl, line_dash="dot", line_color=col,
                           line_width=1, opacity=0.6, row=3, col=1)
@@ -253,12 +248,10 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         hoverdistance = 50,
     ))
 
-    # X-axes: hide rangeslider, style ticks on bottom panel only
     for i in range(1, 6):
-        show_ticks = (i == 5)
         fig.update_xaxes(
             rangeslider_visible = False,
-            showticklabels      = show_ticks,
+            showticklabels      = (i == 5),
             tickfont            = dict(color=C["text_secondary"], size=9),
             gridcolor           = CHART["grid"],
             showgrid            = True,
@@ -266,7 +259,6 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
             row=i, col=1,
         )
 
-    # Y-axes per panel
     _ya = dict(gridcolor=CHART["grid"], tickfont=dict(color=C["text_secondary"], size=9),
                linecolor=C["border"], zerolinecolor=CHART["zero_line"])
     fig.update_yaxes(**_ya, row=1, col=1)
@@ -275,18 +267,16 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     fig.update_yaxes(**_ya, zeroline=True, zerolinewidth=1, row=4, col=1)
     fig.update_yaxes(**_ya, range=[0, 55], dtick=25, row=5, col=1)
 
-    # OBV secondary y-axis on volume panel (row 2) — independent scale, right side
     fig.update_layout(**{
         "yaxis6": dict(
-            overlaying = "y2",
-            side       = "right",
-            showgrid   = False,
+            overlaying     = "y2",
+            side           = "right",
+            showgrid       = False,
             showticklabels = False,
-            tickfont   = dict(color="#22d3ee", size=8),
+            tickfont       = dict(color="#22d3ee", size=8),
         )
     })
 
-    # Subplot label styling — small, left-aligned, dimmed
     for ann in fig.layout.annotations:
         ann.update(font=dict(color=C["text_dim"], size=9),
                    x=0.0, xanchor="left")

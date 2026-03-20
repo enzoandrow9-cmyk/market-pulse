@@ -97,6 +97,10 @@ def build_navbar() -> html.Div:
                         style=tab_style, selected_style=active_tab_style),
                 dcc.Tab(label="MARKET",     value="market",
                         style=tab_style, selected_style=active_tab_style),
+                dcc.Tab(label="INTELLIGENCE", value="intelligence",
+                        style=tab_style, selected_style=active_tab_style),
+                dcc.Tab(label="CALENDAR",   value="calendar",
+                        style=tab_style, selected_style=active_tab_style),
                 dcc.Tab(label="NEWS",       value="news",
                         style=tab_style, selected_style=active_tab_style),
                 dcc.Tab(label="⚙ SETTINGS", value="settings",
@@ -975,13 +979,19 @@ def build_market_tab() -> html.Div:
         ], style={"marginBottom":"14px"}),
         dbc.Row([
             dbc.Col([
-                html.Div("COMMODITIES", style=SECTION_TITLE),
-                html.Div(id="market-commodities"),
+                html.Div("BONDS  ·  US TREASURIES", style=SECTION_TITLE),
+                html.Div(id="market-bonds"),
             ], width=6),
             dbc.Col([
                 html.Div("FX", style=SECTION_TITLE),
                 html.Div(id="market-fx"),
             ], width=6),
+        ], style={"marginBottom":"14px"}),
+        dbc.Row([
+            dbc.Col([
+                html.Div("COMMODITIES", style=SECTION_TITLE),
+                html.Div(id="market-commodities"),
+            ], width=12),
         ]),
     ], style={"padding":"14px 20px"})
 
@@ -1101,14 +1111,692 @@ def build_futures_table(rows: list) -> html.Div:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Calendar tab
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CAL_CATEGORIES = [
+    ("EARNINGS", "var(--accent)",  "EARNINGS"),
+    ("ECONOMIC", "#38bdf8",        "ECONOMIC"),
+    ("FED",      "#a78bfa",        "FED"),
+    ("IPO",      "#22c55e",        "IPO"),
+]
+
+_CAL_CAT_COLORS = {
+    "EARNINGS": "var(--accent)",
+    "ECONOMIC": "#38bdf8",
+    "FED":      "#a78bfa",
+    "IPO":      "#22c55e",
+}
+
+_CAL_IMPACT_COLORS = {
+    "HIGH":   "#ef4444",
+    "MEDIUM": "var(--accent)",
+    "LOW":    "#475569",
+}
+
+# ── Event info lookup: (display_name, description, market_impact) ─────────────
+# Key = substring to match against event title (case-insensitive)
+_EVENT_INFO = {
+    # ── Inflation ──────────────────────────────────────────────────────────────
+    "Core CPI": (
+        "Core Consumer Price Index",
+        "CPI stripped of food and energy — the Fed's favored read on underlying inflation due to its lower volatility.",
+        "Persistent core CPI above the Fed's target is the single biggest obstacle to rate cuts. A surprise to the upside resets the rate-cut timeline, punishes growth/tech multiples, and drives yields sharply higher. A downside surprise can trigger a broad risk-on rally and a meaningful bond bid.",
+    ),
+    "CPI": (
+        "Consumer Price Index",
+        "Measures monthly price changes across a basket of goods and services paid by consumers.",
+        "The most market-moving inflation print. A hot reading pressures the Fed to stay hawkish — equities sell off (especially rate-sensitive growth), yields spike, and the dollar strengthens. A cool reading rallies risk assets and can trigger sharp bond moves as rate-cut bets reprice.",
+    ),
+    "PCE": (
+        "Personal Consumption Expenditures",
+        "The Fed's preferred inflation gauge, tracking price changes in consumer spending.",
+        "Because the Fed explicitly targets PCE at 2%, this print directly drives rate expectations. A hot reading can reset rate-cut timelines across the curve; a cool one can accelerate them and fuel broad equity upside.",
+    ),
+    "PPI": (
+        "Producer Price Index",
+        "Tracks selling-price changes received by domestic producers — a leading indicator for consumer inflation.",
+        "A leading signal for future CPI direction. Rising PPI suggests pipeline inflation that will eventually reach consumers. Markets use it to front-run CPI surprises, making it especially relevant when the Fed is already watching inflation closely.",
+    ),
+    # ── Labor ──────────────────────────────────────────────────────────────────
+    "Nonfarm Payrolls": (
+        "Nonfarm Payrolls",
+        "Monthly change in US employment, excluding the agricultural sector. The single most anticipated economic release.",
+        "A blowout number is often bearish in a high-rate environment — it signals the Fed won't cut soon. A weak print raises recession fears but can also spark rate-cut bets, making equities' reaction complex. The 'bad news is good news' dynamic frequently applies. Wage growth within the report is a critical secondary read.",
+    ),
+    "NFP": (
+        "Nonfarm Payrolls",
+        "Monthly change in US employment, excluding the agricultural sector.",
+        "Strong jobs data keeps the Fed on hold; weak data raises recession fears but can also price in cuts. The headline number, unemployment rate, and average hourly earnings all matter for the full picture.",
+    ),
+    "Unemployment": (
+        "Unemployment Rate",
+        "The percentage of the labor force that is jobless and actively seeking employment.",
+        "Rising unemployment signals economic weakness, potentially pushing the Fed toward cuts. Falling unemployment in a hot economy can signal the opposite. Market reaction depends heavily on whether the move is driven by layoffs versus labor force growth.",
+    ),
+    "JOLTS": (
+        "Job Openings and Labor Turnover Survey",
+        "Measures job openings, hires, and separations — a detailed view of labor market health.",
+        "High job openings signal tight labor markets and wage pressure, keeping the Fed hawkish. Declining openings suggest cooling demand, supporting rate-cut expectations. Often viewed as an early signal ahead of payrolls.",
+    ),
+    "ADP": (
+        "ADP Employment Report",
+        "Private-sector employment estimate released two days before the official NFP.",
+        "Used as a directional preview for NFP. Large divergences between ADP and the official print can cause sharp mid-week moves and reset positioning ahead of Friday's report.",
+    ),
+    # ── Growth ─────────────────────────────────────────────────────────────────
+    "GDP": (
+        "Gross Domestic Product",
+        "The broadest measure of US economic output — total value of goods and services produced.",
+        "Strong GDP is generally risk-on but creates a Fed dilemma: a hot economy may mean rates stay higher for longer. A contraction (negative print) signals recession risk, hammers equities, and drives a flight into bonds and defensive assets.",
+    ),
+    "Retail Sales": (
+        "Retail Sales",
+        "Monthly change in total receipts at retail stores — a direct proxy for consumer spending strength.",
+        "Consumer spending drives ~70% of US GDP, making this a key economic health check. A strong print is bullish for corporate revenues but in a high-inflation context signals the Fed needs to stay tight. A weak print suggests the consumer is cracking under rate pressure.",
+    ),
+    # ── Manufacturing & Services ───────────────────────────────────────────────
+    "PMI": (
+        "Purchasing Managers' Index",
+        "Survey-based index of business activity. Above 50 = expansion, below 50 = contraction.",
+        "A leading indicator of economic momentum. PMI above 50 is broadly bullish; sustained readings below 50 signal contraction. Flash PMI (preliminary estimate) is especially market-moving since it arrives before other growth data.",
+    ),
+    "ISM": (
+        "ISM Manufacturing / Services Index",
+        "Monthly survey of US purchasing managers measuring business conditions and future expectations.",
+        "A key forward-looking indicator. ISM Manufacturing below 50 for multiple months signals industrial recession. The prices-paid component in Services ISM is closely watched for inflationary pressure that may spill into CPI.",
+    ),
+    # ── Housing ────────────────────────────────────────────────────────────────
+    "Housing": (
+        "Housing Market Data",
+        "Covers starts, permits, existing home sales, and new home sales across the US housing market.",
+        "Housing is the most rate-sensitive sector in the economy. Persistent weakness signals Fed tightening is biting the real economy and supports the case for cuts. Strength signals resilience but can keep inflation elevated via shelter costs in CPI.",
+    ),
+    # ── Fed ────────────────────────────────────────────────────────────────────
+    "FOMC": (
+        "FOMC Rate Decision",
+        "The Federal Open Market Committee meets to set the federal funds rate target range — one of the most anticipated events on the financial calendar.",
+        "Rate decisions move every asset class simultaneously. Hikes compress equity multiples (especially growth/tech), strengthen the dollar, and raise yields across the curve. Cuts do the opposite. The post-meeting press conference and the quarterly 'dot plot' projections often move markets more than the decision itself. Watch for hawkish/dovish pivots in language.",
+    ),
+    "Fed": (
+        "Federal Reserve Announcement",
+        "An official communication or decision from the Federal Reserve, including speeches and minutes.",
+        "Any Fed communication is market-moving. Shifts in language around inflation, employment, and the rate path can reprice bond markets and equity multiples significantly. Fed Chair press conferences and surprise speeches at conferences are especially high-impact.",
+    ),
+    # ── Trade & Policy ─────────────────────────────────────────────────────────
+    "Tariff": (
+        "Trade Tariff Announcement",
+        "A government decision to impose or change tariffs on imported goods.",
+        "Tariffs raise input costs for businesses and consumer prices, acting as a tax on economic activity. Affected sectors (autos, semiconductors, agriculture) react sharply. Retaliatory measures from trading partners can escalate into broader market risk-off moves.",
+    ),
+    "Sanctions": (
+        "Economic Sanctions",
+        "Government-imposed economic restrictions on a country, entity, or individual.",
+        "Sanctions can cut off commodity supplies, restrict trade flows, and elevate geopolitical risk premiums. Energy and commodity markets are often most directly affected, with spillover into inflation expectations and affected-country currencies.",
+    ),
+}
+
+# Category-level fallbacks when no keyword matches
+_CAT_INFO = {
+    "EARNINGS": (
+        "Quarterly Earnings Release",
+        "The company reports quarterly revenue, earnings per share (EPS), and forward guidance.",
+        "Earnings beats on both revenue and EPS typically drive the stock higher; misses trigger sell-offs. Forward guidance is often more important than the headline numbers — a beat with weak guidance can still push the stock lower. Bellwether reports (Apple, NVIDIA, JPMorgan) carry sector-wide contagion risk. Watch the options implied move heading in for expected volatility.",
+    ),
+    "IPO": (
+        "Initial Public Offering",
+        "The company lists on a public exchange for the first time, offering shares to institutional and retail investors.",
+        "High-profile IPOs can affect sector valuations and draw capital rotation from competing names. First-day performance sets near-term sentiment. Key secondary event: lock-up expiration (typically 90–180 days post-IPO) when insiders can first sell, often creating selling pressure.",
+    ),
+    "ECONOMIC": (
+        "Economic Data Release",
+        "A scheduled release of macroeconomic data by a government agency or research body.",
+        "Economic data shapes market expectations for Fed policy, corporate earnings, and growth trajectory. Surprises relative to consensus estimates drive the immediate reaction; the trend across multiple releases matters more for sustained directional moves.",
+    ),
+    "FED": (
+        "Federal Reserve Event",
+        "A scheduled Federal Reserve meeting, speech, or publication.",
+        "Fed communications are the single largest driver of short-term bond and equity volatility. Markets dissect every word for signals on the rate path, balance sheet policy, and the Fed's economic outlook.",
+    ),
+}
+
+
+def build_cal_modal_body(event: dict) -> list:
+    """Build the children list for the calendar event detail modal."""
+    import datetime as _dt
+
+    cat      = event.get("cat",      event.get("category", ""))
+    title    = event.get("title",    "")
+    subtitle = event.get("subtitle", "")
+    impact   = event.get("impact",   "")
+    ticker   = event.get("ticker",   "")
+    date_str = event.get("date",     "")
+
+    # Look up description + market impact by matching title keywords
+    name, desc, mkt_impact = None, None, None
+    title_lower = title.lower()
+    for key, info in _EVENT_INFO.items():
+        if key.lower() in title_lower:
+            name, desc, mkt_impact = info
+            break
+    if not name:
+        name, desc, mkt_impact = _CAT_INFO.get(cat, _CAT_INFO["ECONOMIC"])
+
+    color     = _CAL_CAT_COLORS.get(cat, C["text_secondary"])
+    imp_color = _CAL_IMPACT_COLORS.get(impact, C["text_dim"])
+
+    try:
+        date_display = _dt.date.fromisoformat(date_str).strftime("%A, %B %-d, %Y")
+    except Exception:
+        date_display = date_str
+
+    return [
+        # ── Category + impact badges ───────────────────────────────────────────
+        html.Div([
+            html.Span(cat, style={
+                "background":    f"color-mix(in srgb, {color} 18%, transparent)",
+                "color":         color,
+                "border":        f"1px solid color-mix(in srgb, {color} 40%, transparent)",
+                "borderRadius":  "3px",
+                "padding":       "2px 9px",
+                "fontSize":      "9px",
+                "fontFamily":    FONT_MONO,
+                "fontWeight":    "700",
+                "letterSpacing": "0.06em",
+                "marginRight":   "8px",
+            }),
+            html.Span(f"● {impact}", style={
+                "color":      imp_color,
+                "fontFamily": FONT_MONO,
+                "fontSize":   "9px",
+                "fontWeight": "600",
+            }) if impact else None,
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "14px"}),
+
+        # ── Title ─────────────────────────────────────────────────────────────
+        html.Div(title, style={
+            "color":         C["text_white"],
+            "fontFamily":    FONT_MONO,
+            "fontSize":      "17px",
+            "fontWeight":    "700",
+            "letterSpacing": "0.02em",
+            "marginBottom":  "6px",
+        }),
+
+        # ── Date + ticker ──────────────────────────────────────────────────────
+        html.Div([
+            html.Span(date_display, style={
+                "color":      C["text_secondary"],
+                "fontFamily": FONT_MONO,
+                "fontSize":   "10px",
+                "marginRight":"12px",
+            }),
+            html.Span(f"${ticker}", style={
+                "color":      "var(--accent)",
+                "fontFamily": FONT_MONO,
+                "fontSize":   "10px",
+                "fontWeight": "700",
+            }) if ticker else None,
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "14px"}),
+
+        # ── Subtitle chip (actual / forecast / prev) ──────────────────────────
+        html.Div(subtitle, style={
+            "background":   f"color-mix(in srgb, {C['border']} 50%, transparent)",
+            "borderRadius": "3px",
+            "padding":      "7px 12px",
+            "color":        C["text_secondary"],
+            "fontFamily":   FONT_MONO,
+            "fontSize":     "10px",
+            "marginBottom": "16px",
+        }) if subtitle else None,
+
+        html.Hr(style={
+            "border": "none",
+            "borderTop": f"1px solid {C['border']}",
+            "margin": "0 0 16px",
+        }),
+
+        # ── What is it ────────────────────────────────────────────────────────
+        html.Div("WHAT IS IT", style={
+            "color":         C["text_dim"],
+            "fontFamily":    FONT_MONO,
+            "fontSize":      "9px",
+            "fontWeight":    "700",
+            "letterSpacing": "0.12em",
+            "marginBottom":  "7px",
+        }),
+        html.Div(desc, style={
+            "color":        C["text_primary"],
+            "fontFamily":   FONT_MONO,
+            "fontSize":     "11px",
+            "lineHeight":   "1.75",
+            "marginBottom": "18px",
+        }),
+
+        # ── Market impact ─────────────────────────────────────────────────────
+        html.Div("MARKET IMPACT", style={
+            "color":         C["text_dim"],
+            "fontFamily":    FONT_MONO,
+            "fontSize":      "9px",
+            "fontWeight":    "700",
+            "letterSpacing": "0.12em",
+            "marginBottom":  "7px",
+        }),
+        html.Div(mkt_impact, style={
+            "color":        C["text_primary"],
+            "fontFamily":   FONT_MONO,
+            "fontSize":     "11px",
+            "lineHeight":   "1.75",
+            "borderLeft":   f"3px solid {color}",
+            "paddingLeft":  "12px",
+        }),
+    ]
+
+
+def build_calendar_tab() -> html.Div:
+    """Calendar tab — month grid with filter pills and prev/next navigation."""
+    import datetime as _dt
+    now         = _dt.date.today()
+    month_label = now.strftime("%B %Y").upper()
+
+    _nav_btn = {
+        "background":    "transparent",
+        "border":        f"1px solid {C['border']}",
+        "borderRadius":  "3px",
+        "color":         C["text_secondary"],
+        "fontFamily":    FONT_MONO,
+        "fontSize":      "12px",
+        "fontWeight":    "700",
+        "padding":       "3px 10px",
+        "cursor":        "pointer",
+        "lineHeight":    "1",
+    }
+
+    filter_btns = []
+    for cat, color, label in _CAL_CATEGORIES:
+        filter_btns.append(html.Button(
+            label,
+            id={"type": "cal-filter-btn", "index": cat},
+            n_clicks=0,
+            style={
+                "background":    f"color-mix(in srgb, {color} 18%, transparent)",
+                "border":        f"1px solid {color}",
+                "borderRadius":  "2px",
+                "color":         color,
+                "fontFamily":    FONT_MONO,
+                "fontSize":      "10px",
+                "fontWeight":    "700",
+                "padding":       "4px 14px",
+                "cursor":        "pointer",
+                "letterSpacing": "0.06em",
+                "whiteSpace":    "nowrap",
+            },
+        ))
+
+    _modal_panel_style = {
+        "display":        "none",
+        "position":       "fixed",
+        "top":            "50%",
+        "left":           "50%",
+        "transform":      "translate(-50%, -50%)",
+        "width":          "540px",
+        "maxWidth":       "92vw",
+        "maxHeight":      "80vh",
+        "overflowY":      "auto",
+        "background":     C["bg_panel"],
+        "border":         f"1px solid {C['border']}",
+        "borderRadius":   "6px",
+        "padding":        "22px 24px 24px",
+        "zIndex":         "1000",
+        "boxShadow":      "0 24px 60px rgba(0,0,0,0.7)",
+    }
+
+    return html.Div([
+        dcc.Store(id="cal-filter",      data=["EARNINGS", "ECONOMIC", "FED", "IPO"]),
+        dcc.Store(id="cal-month",       data={"year": now.year, "month": now.month}),
+        dcc.Store(id="cal-modal-event", data=None),
+
+        # Top bar: filter pills left, month nav right
+        html.Div([
+            html.Div(filter_btns, style={"display": "flex", "gap": "6px", "flexWrap": "wrap"}),
+            html.Div([
+                html.Button("◄", id="cal-prev-month", n_clicks=0, style=_nav_btn),
+                html.Span(month_label, id="cal-month-label", style={
+                    "color":         C["text_white"],
+                    "fontFamily":    FONT_MONO,
+                    "fontSize":      "11px",
+                    "fontWeight":    "700",
+                    "letterSpacing": "0.12em",
+                    "minWidth":      "140px",
+                    "textAlign":     "center",
+                }),
+                html.Button("►", id="cal-next-month", n_clicks=0, style=_nav_btn),
+            ], style={"display": "flex", "alignItems": "center", "gap": "8px"}),
+        ], style={
+            "display":        "flex",
+            "alignItems":     "center",
+            "justifyContent": "space-between",
+            "marginBottom":   "14px",
+            "flexWrap":       "wrap",
+            "gap":            "10px",
+        }),
+
+        html.Div(id="calendar-content",
+                 children=html.Div("Loading calendar…", style=LABEL_STYLE)),
+
+        # ── Modal overlay — always in DOM, shown/hidden by callback ───────────
+        # Dark backdrop (click to close)
+        html.Div(id="cal-modal-backdrop", n_clicks=0, style={
+            "display":    "none",
+            "position":   "fixed",
+            "top":        "0",
+            "left":       "0",
+            "right":      "0",
+            "bottom":     "0",
+            "background": "rgba(0, 6, 20, 0.80)",
+            "zIndex":     "999",
+            "cursor":     "pointer",
+        }),
+        # Modal panel — static shell (close button always in DOM)
+        html.Div(id="cal-modal-panel", style={**_modal_panel_style,
+                 "display": "none", "flexDirection": "column"}, children=[
+            # Static header: always rendered so cal-modal-close is always in DOM
+            html.Div([
+                html.Span("EVENT DETAIL", style={
+                    "color":         C["text_dim"],
+                    "fontFamily":    FONT_MONO,
+                    "fontSize":      "9px",
+                    "fontWeight":    "700",
+                    "letterSpacing": "0.12em",
+                }),
+                html.Button("✕", id="cal-modal-close", n_clicks=0, style={
+                    "background": "transparent",
+                    "border":     "none",
+                    "color":      C["text_secondary"],
+                    "fontSize":   "18px",
+                    "cursor":     "pointer",
+                    "padding":    "0",
+                    "lineHeight": "1",
+                }),
+            ], style={
+                "display":        "flex",
+                "justifyContent": "space-between",
+                "alignItems":     "center",
+                "marginBottom":   "14px",
+                "paddingBottom":  "10px",
+                "borderBottom":   f"1px solid {C['border']}",
+            }),
+            # Dynamic content filled by callback
+            html.Div(id="cal-modal-body"),
+        ]),
+
+    ], style={"padding": "14px 20px"})
+
+
+def build_calendar_view(events: list, active_cats: list,
+                        year: int, month: int) -> html.Div:
+    """Render a monthly calendar grid with event pills in each day cell."""
+    import datetime as _dt
+    import calendar as _cal_lib
+    from collections import defaultdict
+
+    active_cats = active_cats or ["EARNINGS", "ECONOMIC", "FED", "IPO"]
+    today       = _dt.date.today()
+
+    # Filter to this month + active categories
+    filtered = [
+        e for e in events
+        if e.get("category") in active_cats
+        and e["date"].year  == year
+        and e["date"].month == month
+    ]
+
+    # Group by day-of-month
+    by_day = defaultdict(list)
+    for e in filtered:
+        by_day[e["date"].day].append(e)
+
+    # Calendar matrix — Sunday first
+    cal   = _cal_lib.Calendar(firstweekday=6)
+    weeks = cal.monthdayscalendar(year, month)
+
+    # ── Day-of-week header row ────────────────────────────────────────────────
+    dow_header = html.Div([
+        html.Div(d, style={
+            "textAlign":     "center",
+            "color":         C["text_dim"],
+            "fontFamily":    FONT_MONO,
+            "fontSize":      "9px",
+            "fontWeight":    "700",
+            "letterSpacing": "0.10em",
+            "padding":       "6px 0 5px",
+            "background":    f"color-mix(in srgb, {C['border']} 60%, transparent)",
+            "borderRadius":  "2px",
+        }) for d in ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+    ], style={
+        "display":             "grid",
+        "gridTemplateColumns": "repeat(7, 1fr)",
+        "gap":                 "2px",
+        "marginBottom":        "2px",
+    })
+
+    # ── Event pill inside a cell ──────────────────────────────────────────────
+    import json as _json
+    _pill_counter = [0]   # mutable counter for unique indices
+
+    def _pill(e):
+        cat    = e.get("category", "")
+        color  = _CAL_CAT_COLORS.get(cat, C["text_secondary"])
+        ticker = e.get("ticker", "")
+        title  = e.get("title", "")
+
+        if cat == "EARNINGS" and ticker:
+            label = ticker
+        elif cat == "FED":
+            label = "FOMC"
+        elif cat == "IPO":
+            label = (ticker or title)[:10]
+        else:
+            label = title[:14]
+
+        # Serialize event fields into the pattern-matching ID index
+        event_key = _json.dumps({
+            "cat":      cat,
+            "title":    title,
+            "subtitle": e.get("subtitle", ""),
+            "impact":   e.get("impact", ""),
+            "ticker":   ticker,
+            "date":     e["date"].isoformat(),
+        }, separators=(",", ":"))
+
+        _pill_counter[0] += 1
+
+        return html.Div(label,
+            id={"type": "cal-event-pill", "index": event_key},
+            n_clicks=0,
+            style={
+                "background":   f"color-mix(in srgb, {color} 18%, transparent)",
+                "color":        color,
+                "border":       f"1px solid color-mix(in srgb, {color} 32%, transparent)",
+                "borderRadius": "2px",
+                "padding":      "1px 5px",
+                "fontSize":     "8px",
+                "fontFamily":   FONT_MONO,
+                "fontWeight":   "600",
+                "whiteSpace":   "nowrap",
+                "overflow":     "hidden",
+                "textOverflow": "ellipsis",
+                "marginBottom": "2px",
+                "maxWidth":     "100%",
+                "cursor":       "pointer",
+                "userSelect":   "none",
+            }
+        )
+
+    # ── Build day cells ───────────────────────────────────────────────────────
+    cells = []
+    for week in weeks:
+        for day_num in week:
+            if day_num == 0:
+                # Filler cell (day belongs to adjacent month)
+                cells.append(html.Div(style={
+                    "minHeight":    "88px",
+                    "background":   f"color-mix(in srgb, {C['bg']} 70%, transparent)",
+                    "border":       f"1px solid {C['border']}20",
+                    "borderRadius": "3px",
+                }))
+                continue
+
+            day_date  = _dt.date(year, month, day_num)
+            is_today  = (day_date == today)
+            is_past   = (day_date < today)
+            day_evts  = by_day.get(day_num, [])
+            visible   = day_evts[:3]
+            overflow  = len(day_evts) - 3
+
+            # Day number element
+            if is_today:
+                num_el = html.Div(str(day_num), style={
+                    "width":          "20px",
+                    "height":         "20px",
+                    "background":     "var(--accent)",
+                    "borderRadius":   "50%",
+                    "display":        "inline-flex",
+                    "alignItems":     "center",
+                    "justifyContent": "center",
+                    "color":          C["bg"],
+                    "fontFamily":     FONT_MONO,
+                    "fontSize":       "9px",
+                    "fontWeight":     "700",
+                })
+            else:
+                num_el = html.Span(str(day_num), style={
+                    "color":      C["text_dim"] if is_past else C["text_secondary"],
+                    "fontFamily": FONT_MONO,
+                    "fontSize":   "10px",
+                    "fontWeight": "600",
+                })
+
+            cell_children = [
+                html.Div(num_el, style={"marginBottom": "5px"}),
+                *[_pill(e) for e in visible],
+            ]
+            if overflow > 0:
+                cell_children.append(html.Div(f"+{overflow} more", style={
+                    "color":      C["text_dim"],
+                    "fontFamily": FONT_MONO,
+                    "fontSize":   "8px",
+                    "marginTop":  "1px",
+                }))
+
+            cells.append(html.Div(cell_children, style={
+                "minHeight":  "88px",
+                "background": (
+                    f"color-mix(in srgb, var(--accent) 7%, {C['bg_panel']})"
+                    if is_today else
+                    f"color-mix(in srgb, {C['bg']} 30%, {C['bg_panel']})"
+                    if is_past else
+                    C["bg_panel"]
+                ),
+                "border": (
+                    f"1px solid var(--accent)"
+                    if is_today else
+                    f"1px solid {C['border']}55"
+                    if is_past else
+                    f"1px solid {C['border']}"
+                ),
+                "borderRadius": "3px",
+                "padding":      "6px 7px",
+                "overflow":     "hidden",
+            }))
+
+    grid = html.Div(cells, style={
+        "display":             "grid",
+        "gridTemplateColumns": "repeat(7, 1fr)",
+        "gap":                 "2px",
+    })
+
+    # Footer: event count for this month
+    total = sum(len(v) for v in by_day.values())
+    footer = html.Div(
+        f"{total} event{'s' if total != 1 else ''}  ·  "
+        f"{_dt.datetime(year, month, 1).strftime('%B %Y')}",
+        style={**LABEL_STYLE, "fontSize": "9px", "marginTop": "10px"},
+    ) if total else html.Div(
+        "No events this month for selected filters.",
+        style={**LABEL_STYLE, "fontSize": "9px", "marginTop": "10px",
+               "fontStyle": "italic"},
+    )
+
+    return html.Div([dow_header, grid, footer])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # News Feed tab
 # ─────────────────────────────────────────────────────────────────────────────
 
+_NEWS_CATEGORIES = [
+    ("ALL",          C["amber"],   "ALL NEWS"),
+    ("PORTFOLIO",    C["amber"],   "PORTFOLIO"),
+    ("GEOPOLITICAL", "#ef4444",    "GEOPOLITICAL"),
+    ("MACRO",        "#3b82f6",    "MACRO / POLICY"),
+    ("MARKETS",      "#22c55e",    "MARKETS"),
+    ("COMMODITIES",  "#f97316",    "COMMODITIES"),
+]
+
+_CAT_COLORS = {
+    "PORTFOLIO":    C["amber"],
+    "GEOPOLITICAL": "#ef4444",
+    "MACRO":        "#3b82f6",
+    "MARKETS":      "#22c55e",
+    "COMMODITIES":  "#f97316",
+}
+
+
 def build_newsfeed_tab() -> html.Div:
+    """News feed tab with category filter bar."""
+    filter_btns = []
+    for cat, color, label in _NEWS_CATEGORIES:
+        active = cat == "ALL"
+        filter_btns.append(html.Button(
+            label,
+            id={"type": "news-filter-btn", "index": cat},
+            n_clicks=0,
+            style={
+                "background":    f"color-mix(in srgb, {color} 18%, transparent)" if active else "transparent",
+                "border":        f"1px solid {color}" if active else f"1px solid {C['border']}",
+                "borderRadius":  "2px",
+                "color":         color if active else C["text_secondary"],
+                "fontFamily":    FONT_MONO,
+                "fontSize":      "10px",
+                "fontWeight":    "700" if active else "600",
+                "padding":       "4px 12px",
+                "cursor":        "pointer",
+                "letterSpacing": "0.06em",
+                "whiteSpace":    "nowrap",
+            },
+        ))
+
     return html.Div([
-        html.Div("PORTFOLIO NEWS FEED", style=SECTION_TITLE),
+        dcc.Store(id="news-filter", data="ALL"),
+
+        # Header + filter bar
+        html.Div([
+            html.Div("NEWS FEED", style={**SECTION_TITLE, "marginBottom": "0"}),
+            html.Div(filter_btns, style={
+                "display": "flex", "gap": "6px", "flexWrap": "wrap",
+            }),
+        ], style={
+            "display":       "flex",
+            "alignItems":    "center",
+            "justifyContent":"space-between",
+            "marginBottom":  "14px",
+            "flexWrap":      "wrap",
+            "gap":           "10px",
+        }),
+
         html.Div(id="news-feed-content"),
-    ], style={"padding":"14px 20px"})
+    ], style={"padding": "14px 20px"})
 
 
 def _source_badge(tag: str, color: str) -> html.Span:
@@ -1142,13 +1830,36 @@ def _ticker_badge(ticker: str) -> html.Span:
     })
 
 
+def _category_badge(category: str) -> html.Span:
+    color = _CAT_COLORS.get(category, C["text_secondary"])
+    return html.Span(category, style={
+        "background":    f"color-mix(in srgb, {color} 15%, transparent)",
+        "color":         color,
+        "border":        f"1px solid color-mix(in srgb, {color} 35%, transparent)",
+        "borderRadius":  "3px",
+        "padding":       "1px 7px",
+        "fontSize":      "9px",
+        "fontFamily":    FONT_MONO,
+        "fontWeight":    "700",
+        "letterSpacing": "0.06em",
+        "marginRight":   "6px",
+        "whiteSpace":    "nowrap",
+    })
+
+
 def _news_article_card(a: dict) -> html.Div:
     ticker       = a.get("ticker", "")
     source_tag   = a.get("source_tag",   a.get("publisher", "NEWS"))
     source_color = a.get("source_color", C["text_secondary"])
     summary      = a.get("summary", "")
+    category     = a.get("category", "")
+
+    # Left border uses category colour — immediately signals article type
+    border_color = _CAT_COLORS.get(category, source_color)
 
     badges = []
+    if category:
+        badges.append(_category_badge(category))
     if ticker:
         badges.append(_ticker_badge(ticker))
     badges.append(_source_badge(source_tag, source_color))
@@ -1179,7 +1890,7 @@ def _news_article_card(a: dict) -> html.Div:
                 "marginBottom":   "4px",
             },
         ),
-        # Summary snippet (if available)
+        # Summary snippet
         html.Div(summary, style={
             **LABEL_STYLE,
             "fontSize":   "10px",
@@ -1190,39 +1901,64 @@ def _news_article_card(a: dict) -> html.Div:
         "padding":      "10px 14px",
         "background":   C["bg_panel"],
         "border":       f"1px solid {C['border']}",
-        "borderLeft":   f"3px solid {source_color}",
+        "borderLeft":   f"3px solid {border_color}",
         "borderRadius": "3px",
         "marginBottom": "6px",
-        "transition":   "border-color 0.15s",
     })
 
 
-def build_news_feed(portfolio_news: list = None, rss_news: list = None) -> html.Div:
+def build_news_feed(
+    portfolio_news: list = None,
+    rss_news: list = None,
+    filter_cat: str = "ALL",
+) -> html.Div:
     """
-    Two-column news feed:
-      Left  — Portfolio ticker news (from yfinance, ticker-tagged)
-      Right — Market news from RSS sources (Reuters, CNBC, MarketWatch, etc.)
+    Unified news feed filtered by category.
+    All articles (portfolio + RSS) are merged, sorted newest-first, and
+    filtered by the selected category pill.
     """
     portfolio_news = portfolio_news or []
     rss_news       = rss_news or []
 
-    left_items  = [_news_article_card(a) for a in portfolio_news] if portfolio_news else [
-        html.Div("No portfolio news available.", style=LABEL_STYLE)
-    ]
-    right_items = [_news_article_card(a) for a in rss_news] if rss_news else [
-        html.Div("No market news available — check your internet connection.",
-                 style=LABEL_STYLE)
-    ]
+    # Merge into one list
+    all_articles = list(portfolio_news) + list(rss_news)
 
-    return dbc.Row([
-        dbc.Col([
-            html.Div("YOUR PORTFOLIO", style=SECTION_TITLE),
-            html.Div(left_items, style={"overflowY": "auto", "maxHeight": "80vh"}),
-        ], width=5),
-        dbc.Col([
-            html.Div("MARKET NEWS", style=SECTION_TITLE),
-            html.Div(right_items, style={"overflowY": "auto", "maxHeight": "80vh"}),
-        ], width=7),
+    # Apply category filter
+    if filter_cat and filter_cat != "ALL":
+        all_articles = [a for a in all_articles if a.get("category") == filter_cat]
+
+    # Sort newest-first using _raw_time if present
+    import time as _time
+    def _sort_key(a):
+        t = a.get("_raw_time")
+        if t:
+            try:
+                return -_time.mktime(t)
+            except Exception:
+                pass
+        return 0
+
+    all_articles.sort(key=_sort_key)
+
+    if not all_articles:
+        cat_label = filter_cat if filter_cat != "ALL" else ""
+        return html.Div(
+            f"No {cat_label + ' ' if cat_label else ''}news available.",
+            style={**LABEL_STYLE, "padding": "20px 0"},
+        )
+
+    # Cap at 80 articles so the DOM doesn't get huge
+    cards = [_news_article_card(a) for a in all_articles[:80]]
+
+    # Article count label
+    count_label = html.Div(
+        f"{len(all_articles[:80])} articles  ·  {filter_cat}",
+        style={**LABEL_STYLE, "fontSize": "9px", "marginBottom": "10px"},
+    )
+
+    return html.Div([
+        count_label,
+        html.Div(cards, style={"overflowY": "auto", "maxHeight": "82vh"}),
     ])
 
 
@@ -1653,6 +2389,8 @@ def build_app_layout() -> html.Div:
         dcc.Store(id="user-settings", storage_type="local", data=DEFAULT_SETTINGS),
         # Active triggered notifications — ephemeral (cleared on reload)
         dcc.Store(id="store-notifications", data=[]),
+        # Intelligence system data store
+        dcc.Store(id="store-intelligence", data=None),
 
         # Navbar
         build_navbar(),
@@ -1671,3 +2409,444 @@ def build_app_layout() -> html.Div:
         "minHeight":   "100vh",
         "fontFamily":  FONT_MONO,
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTELLIGENCE TAB  —  Smart Money Operating System
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_intelligence_tab() -> html.Div:
+    """
+    Shell layout for the Intelligence tab.
+    Five panels populated via the update_intelligence_panels() callback.
+    """
+    _panel = {
+        "background":   C["bg_panel"],
+        "border":       f"1px solid {C['border']}",
+        "borderRadius": "4px",
+        "padding":      "14px 16px",
+    }
+    return html.Div([
+        # Header row
+        html.Div([
+            html.Span("◈ ", style={"color": "var(--accent)", "fontSize": "14px"}),
+            html.Span("SMART MONEY OPERATING SYSTEM", style={
+                "color": C["text_white"], "fontFamily": FONT_MONO,
+                "fontSize": "12px", "fontWeight": "900", "letterSpacing": "0.12em",
+            }),
+            html.Span("  ·  Institutional-grade analysis on public data", style={
+                "color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "10px",
+                "letterSpacing": "0.08em",
+            }),
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "14px"}),
+
+        # Row 1: Regime + Cross-Asset (2 columns)
+        html.Div([
+            html.Div(id="intel-regime-panel",    style={**_panel, "minHeight": "180px"}),
+            html.Div(id="intel-crossasset-panel",style={**_panel, "minHeight": "180px"}),
+        ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr",
+                  "gap": "10px", "marginBottom": "10px"}),
+
+        # Row 2: Smart Money Leaderboard + Trade Ideas (2 columns)
+        html.Div([
+            html.Div(id="intel-sm-panel",    style={**_panel, "minHeight": "220px"}),
+            html.Div(id="intel-trade-panel", style={**_panel, "minHeight": "220px"}),
+        ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr",
+                  "gap": "10px", "marginBottom": "10px"}),
+
+        # Row 3: Signal Feed (full width)
+        html.Div(id="intel-signal-feed", style={**_panel, "minHeight": "160px"}),
+
+    ], style={
+        "padding":    "16px 20px",
+        "background": C["bg"],
+        "minHeight":  "calc(100vh - 74px)",
+    })
+
+
+# ── Panel builders called from main.py callbacks ──────────────────────────────
+
+def _intel_section_title(text: str) -> html.Div:
+    return html.Div(text, style={
+        "color": "var(--accent)", "fontFamily": FONT_MONO, "fontSize": "10px",
+        "fontWeight": "700", "letterSpacing": "0.14em", "textTransform": "uppercase",
+        "borderBottom": f"1px solid {C['border']}", "paddingBottom": "6px",
+        "marginBottom": "10px",
+    })
+
+
+def build_intel_regime_panel(regime: dict) -> html.Div:
+    """Market regime status panel."""
+    if not regime:
+        return html.Div("Loading…", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "11px"})
+
+    rname  = regime.get("regime", "Unknown")
+    rconf  = regime.get("confidence", 0)
+    rcolor = regime.get("color", C["amber"])
+    vix    = regime.get("vix_level", 0)
+    spy_t  = regime.get("spy_trend", "sideways")
+    btc_t  = regime.get("btc_trend", "sideways")
+    drivers= regime.get("key_drivers", [])
+    votes  = regime.get("vote_breakdown", {})
+
+    trend_color = {"uptrend": C["green"], "downtrend": C["red"], "sideways": C["amber"]}
+
+    # Vote bar
+    vote_bars = []
+    vote_colors_map = {
+        "Risk-On": "#22c55e", "Risk-Off": "#ef4444",
+        "Transition": "#fbbf24", "High Volatility": "#f97316", "Low Liquidity": "#a78bfa",
+    }
+    for vname, vpct in sorted(votes.items(), key=lambda x: -x[1]):
+        vc = vote_colors_map.get(vname, C["amber"])
+        vote_bars.append(html.Div([
+            html.Span(vname, style={"color": C["text_secondary"], "fontFamily": FONT_MONO,
+                                    "fontSize": "9px", "width": "110px", "display": "inline-block"}),
+            html.Div(style={
+                "display": "inline-block", "height": "6px", "width": f"{vpct}%",
+                "background": vc, "borderRadius": "2px", "verticalAlign": "middle",
+                "maxWidth": "120px",
+            }),
+            html.Span(f" {vpct}%", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+        ], style={"marginBottom": "3px", "display": "flex", "alignItems": "center", "gap": "6px"}))
+
+    return html.Div([
+        _intel_section_title("Market Regime"),
+        # Regime badge
+        html.Div([
+            html.Span(rname, style={
+                "color": rcolor, "fontFamily": FONT_MONO, "fontSize": "20px",
+                "fontWeight": "900", "letterSpacing": "0.06em", "marginRight": "12px",
+            }),
+            html.Span(f"{rconf}% confidence", style={
+                "color": C["text_secondary"], "fontFamily": FONT_MONO, "fontSize": "11px",
+            }),
+        ], style={"marginBottom": "10px", "display": "flex", "alignItems": "baseline"}),
+
+        # Key stats row
+        html.Div([
+            html.Div([
+                html.Span("VIX ", style={"color": C["text_secondary"], "fontFamily": FONT_MONO, "fontSize": "10px"}),
+                html.Span(f"{vix:.1f}", style={"color": C["text_primary"], "fontFamily": FONT_MONO, "fontSize": "13px", "fontWeight": "700"}),
+            ], style={"marginRight": "18px"}),
+            html.Div([
+                html.Span("SPY ", style={"color": C["text_secondary"], "fontFamily": FONT_MONO, "fontSize": "10px"}),
+                html.Span(spy_t.upper(), style={"color": trend_color.get(spy_t, C["amber"]),
+                                                "fontFamily": FONT_MONO, "fontSize": "11px", "fontWeight": "700"}),
+            ], style={"marginRight": "18px"}),
+            html.Div([
+                html.Span("BTC ", style={"color": C["text_secondary"], "fontFamily": FONT_MONO, "fontSize": "10px"}),
+                html.Span(btc_t.upper(), style={"color": trend_color.get(btc_t, C["amber"]),
+                                                "fontFamily": FONT_MONO, "fontSize": "11px", "fontWeight": "700"}),
+            ]),
+        ], style={"display": "flex", "marginBottom": "10px"}),
+
+        # Vote breakdown
+        html.Div(vote_bars, style={"marginBottom": "10px"}),
+
+        # Key drivers
+        html.Div([
+            html.Div(f"• {d}", style={
+                "color": C["text_secondary"], "fontFamily": FONT_MONO,
+                "fontSize": "9.5px", "marginBottom": "3px", "lineHeight": "1.4",
+            }) for d in drivers[:4]
+        ]),
+    ])
+
+
+def build_intel_crossasset_panel(cross_intel: dict) -> html.Div:
+    """Cross-asset intelligence panel."""
+    if not cross_intel:
+        return html.Div("Loading…", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "11px"})
+
+    corr_regime    = cross_intel.get("correlation_regime", "normal")
+    leading        = cross_intel.get("leading_asset", "—")
+    lagging        = cross_intel.get("lagging_assets", [])
+    rotation       = cross_intel.get("asset_rotation", "—")
+    momentum_map   = cross_intel.get("momentum_map", {})
+    correlations   = cross_intel.get("correlations", {})
+    signals        = cross_intel.get("signals", [])
+
+    regime_color   = {"normal": "#22c55e", "diverging": "#fbbf24", "unstable": "#ef4444"}
+    corr_reg_color = regime_color.get(corr_regime, C["amber"])
+
+    # Momentum mini-table
+    asset_order = ["SPY", "QQQ", "BTC-USD", "GC=F", "CL=F", "DX-Y.NYB", "^TNX"]
+    asset_names = {"SPY": "SPY", "QQQ": "QQQ", "BTC-USD": "BTC", "GC=F": "GOLD",
+                   "CL=F": "OIL", "DX-Y.NYB": "DXY", "^TNX": "10Y"}
+    mom_rows = []
+    for sym in asset_order:
+        if sym not in momentum_map:
+            continue
+        m5  = momentum_map[sym]["5d"]
+        m20 = momentum_map[sym]["20d"]
+        c5  = C["green"] if m5  >= 0 else C["red"]
+        c20 = C["green"] if m20 >= 0 else C["red"]
+        mom_rows.append(html.Div([
+            html.Span(asset_names.get(sym, sym), style={
+                "color": C["text_secondary"], "fontFamily": FONT_MONO,
+                "fontSize": "10px", "width": "42px", "display": "inline-block",
+            }),
+            html.Span(f"{m5:+.1f}%", style={
+                "color": c5, "fontFamily": FONT_MONO, "fontSize": "10px",
+                "fontWeight": "700", "width": "56px", "display": "inline-block",
+            }),
+            html.Span(f"{m20:+.1f}%", style={
+                "color": c20, "fontFamily": FONT_MONO, "fontSize": "10px",
+                "width": "56px", "display": "inline-block",
+            }),
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "2px"}))
+
+    # SPY correlations mini-bar
+    corr_rows = []
+    for sym, val in correlations.items():
+        bar_w  = int(abs(val) * 60)
+        bar_clr= C["green"] if val >= 0 else C["red"]
+        name   = asset_names.get(sym, sym)
+        corr_rows.append(html.Div([
+            html.Span(name, style={"color": C["text_secondary"], "fontFamily": FONT_MONO,
+                                   "fontSize": "9px", "width": "38px", "display": "inline-block"}),
+            html.Div(style={"display": "inline-block", "height": "5px", "width": f"{bar_w}px",
+                            "background": bar_clr, "borderRadius": "2px",
+                            "verticalAlign": "middle", "maxWidth": "60px"}),
+            html.Span(f"  {val:+.2f}", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+        ], style={"display": "flex", "alignItems": "center", "gap": "5px", "marginBottom": "2px"}))
+
+    return html.Div([
+        _intel_section_title("Cross-Asset Intelligence"),
+
+        html.Div([
+            # Left: momentum table
+            html.Div([
+                html.Div([
+                    html.Span("ASSET", style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                              "fontSize": "9px", "width": "42px", "display": "inline-block"}),
+                    html.Span("5D", style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                           "fontSize": "9px", "width": "56px", "display": "inline-block"}),
+                    html.Span("20D", style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                            "fontSize": "9px"}),
+                ], style={"display": "flex", "marginBottom": "4px"}),
+                *mom_rows,
+            ], style={"flex": "1", "marginRight": "16px"}),
+
+            # Right: correlations vs SPY + regime
+            html.Div([
+                html.Div("VS SPY CORR", style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                                "fontSize": "9px", "marginBottom": "4px"}),
+                *corr_rows,
+                html.Div([
+                    html.Span("REGIME  ", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+                    html.Span(corr_regime.upper(), style={"color": corr_reg_color,
+                                                          "fontFamily": FONT_MONO, "fontSize": "10px",
+                                                          "fontWeight": "700"}),
+                ], style={"marginTop": "8px"}),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "marginBottom": "8px"}),
+
+        # Leading / rotation
+        html.Div([
+            html.Span("LEADING  ", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+            html.Span(leading, style={"color": C["green"], "fontFamily": FONT_MONO,
+                                      "fontSize": "10px", "fontWeight": "600"}),
+        ], style={"marginBottom": "3px"}),
+        html.Div([
+            html.Span("ROTATION  ", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+            html.Span(rotation, style={"color": C["amber"], "fontFamily": FONT_MONO,
+                                       "fontSize": "10px", "fontWeight": "600"}),
+        ]),
+    ])
+
+
+def build_intel_sm_leaderboard(sm_scores: dict, predictions: dict) -> html.Div:
+    """Smart Money Score leaderboard."""
+    if not sm_scores:
+        return html.Div("Loading…", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "11px"})
+
+    # Sort by score descending
+    ranked = sorted(sm_scores.items(), key=lambda x: x[1].get("score", 50), reverse=True)
+
+    def _score_color(sc):
+        if sc >= 65: return C["green"]
+        if sc >= 52: return "#86efac"
+        if sc <= 35: return C["red"]
+        if sc <= 48: return "#fca5a5"
+        return C["amber"]
+
+    rows = []
+    for ticker, sms in ranked:
+        sc    = sms.get("score", 50)
+        grade = sms.get("grade", "C")
+        pred  = predictions.get(ticker, {})
+        bias  = pred.get("directional_bias", "neutral")
+        prob  = pred.get("probability", 50)
+        bc    = C["green"] if bias == "bullish" else (C["red"] if bias == "bearish" else C["amber"])
+        sclr  = _score_color(sc)
+        bar_w = int(sc * 0.9)  # max ~90px for score=100
+
+        rows.append(html.Div([
+            # Ticker
+            html.Span(ticker, style={"color": C["text_white"], "fontFamily": FONT_MONO,
+                                     "fontSize": "11px", "fontWeight": "700",
+                                     "width": "54px", "display": "inline-block"}),
+            # Score bar
+            html.Div([
+                html.Div(style={
+                    "height": "7px", "width": f"{bar_w}px",
+                    "background": sclr, "borderRadius": "2px",
+                }),
+            ], style={"flex": "1", "margin": "0 10px"}),
+            # Score + grade
+            html.Span(f"{sc}", style={"color": sclr, "fontFamily": FONT_MONO,
+                                       "fontSize": "12px", "fontWeight": "700",
+                                       "width": "30px", "display": "inline-block"}),
+            html.Span(grade, style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                    "fontSize": "10px", "width": "24px",
+                                    "display": "inline-block"}),
+            # Directional bias
+            html.Span(f"{bias[:4].upper()}  {prob}%", style={
+                "color": bc, "fontFamily": FONT_MONO, "fontSize": "9px",
+                "fontWeight": "700", "width": "70px", "display": "inline-block",
+                "textAlign": "right",
+            }),
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "6px",
+                  "padding": "5px 8px",
+                  "background": C["bg"], "borderRadius": "3px",
+                  "border": f"1px solid {C['border']}"}))
+
+    # Signal stats footer
+    return html.Div([
+        _intel_section_title("Smart Money Leaders"),
+        *rows,
+    ])
+
+
+def build_intel_trade_ideas(trade_ideas: list) -> html.Div:
+    """Trade idea cards."""
+    if not trade_ideas:
+        return html.Div([
+            _intel_section_title("Trade Ideas"),
+            html.Div("No high-confidence setups at current signal alignment.", style={
+                "color": C["text_dim"], "fontFamily": FONT_MONO,
+                "fontSize": "11px", "fontStyle": "italic",
+            }),
+        ])
+
+    cards = []
+    for idea in trade_ideas[:4]:
+        ticker   = idea["ticker"]
+        dir_     = idea["direction"]
+        setup    = idea["setup_type"]
+        entry    = idea["entry_zone"]
+        inval    = idea["invalidation"]
+        targets  = idea["target_levels"]
+        rr       = idea["risk_reward"]
+        conf     = idea["confidence"]
+        reasons  = idea.get("reasoning", [])
+
+        dir_color  = C["green"] if dir_ == "bullish" else C["red"]
+        dir_label  = "LONG" if dir_ == "bullish" else "SHORT"
+        setup_map  = {"breakout": "BRKOUT", "reversal": "REV", "accumulation": "ACCUM"}
+        setup_lbl  = setup_map.get(setup, setup[:6].upper())
+
+        cards.append(html.Div([
+            # Header row
+            html.Div([
+                html.Span(ticker, style={"color": C["text_white"], "fontFamily": FONT_MONO,
+                                         "fontSize": "13px", "fontWeight": "900", "marginRight": "8px"}),
+                html.Span(dir_label, style={"color": dir_color, "fontFamily": FONT_MONO,
+                                             "fontSize": "10px", "fontWeight": "700",
+                                             "border": f"1px solid {dir_color}",
+                                             "padding": "1px 5px", "borderRadius": "2px",
+                                             "marginRight": "6px"}),
+                html.Span(setup_lbl, style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                             "fontSize": "9px", "marginRight": "auto"}),
+                html.Span(f"{conf}%  CONF", style={"color": C["amber"], "fontFamily": FONT_MONO,
+                                                    "fontSize": "9px", "fontWeight": "700"}),
+            ], style={"display": "flex", "alignItems": "center", "marginBottom": "5px"}),
+
+            # Entry / inval / targets
+            html.Div([
+                html.Span("ENTRY  ", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+                html.Span(f"${entry[0]}–${entry[1]}", style={"color": C["text_primary"],
+                                                               "fontFamily": FONT_MONO, "fontSize": "10px",
+                                                               "fontWeight": "600", "marginRight": "10px"}),
+                html.Span("STOP  ", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+                html.Span(f"${inval}", style={"color": C["red"], "fontFamily": FONT_MONO,
+                                               "fontSize": "10px", "fontWeight": "600",
+                                               "marginRight": "10px"}),
+                html.Span(f"R/R {rr}x", style={"color": C["green"], "fontFamily": FONT_MONO,
+                                                 "fontSize": "10px", "fontWeight": "700"}),
+            ], style={"marginBottom": "3px"}),
+
+            html.Div([
+                html.Span("TARGETS  ", style={"color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px"}),
+                *[html.Span(f"${t}  ", style={"color": C["green"] if dir_ == "bullish" else C["red"],
+                                               "fontFamily": FONT_MONO, "fontSize": "10px", "fontWeight": "600"})
+                  for t in targets],
+            ], style={"marginBottom": "4px"}),
+
+            # Top reason
+            html.Div(reasons[0] if reasons else "", style={
+                "color": C["text_secondary"], "fontFamily": FONT_MONO,
+                "fontSize": "9px", "fontStyle": "italic",
+            }),
+        ], style={
+            "background":   C["bg"],
+            "border":       f"1px solid {dir_color}33",
+            "borderLeft":   f"3px solid {dir_color}",
+            "borderRadius": "3px",
+            "padding":      "8px 10px",
+            "marginBottom": "6px",
+        }))
+
+    return html.Div([
+        _intel_section_title("Trade Ideas"),
+        *cards,
+    ])
+
+
+def build_intel_signal_feed(signal_feed: list, signal_stats: dict) -> html.Div:
+    """Live signal feed with accuracy stats footer."""
+    rows = []
+    for sig in signal_feed:
+        time_  = sig.get("time", "")
+        type_  = sig.get("type", "")
+        ticker = sig.get("ticker", "")
+        msg    = sig.get("message", "")
+        color  = sig.get("color", C["text_secondary"])
+        rows.append(html.Div([
+            html.Span(time_, style={"color": C["text_dim"], "fontFamily": FONT_MONO,
+                                    "fontSize": "10px", "width": "44px",
+                                    "display": "inline-block", "flexShrink": "0"}),
+            html.Span(ticker, style={"color": C["amber"], "fontFamily": FONT_MONO,
+                                     "fontSize": "10px", "fontWeight": "700",
+                                     "width": "80px", "display": "inline-block", "flexShrink": "0"}),
+            html.Span(f"[{type_}]", style={"color": color, "fontFamily": FONT_MONO,
+                                            "fontSize": "9px", "fontWeight": "700",
+                                            "width": "84px", "display": "inline-block", "flexShrink": "0"}),
+            html.Span(msg, style={"color": C["text_secondary"], "fontFamily": FONT_MONO,
+                                   "fontSize": "10px", "lineHeight": "1.4"}),
+        ], style={"display": "flex", "alignItems": "flex-start", "gap": "4px",
+                  "padding": "4px 6px", "borderBottom": f"1px solid {C['border']}"}))
+
+    # Stats footer
+    stats_parts = []
+    if signal_stats:
+        total = signal_stats.get("total", 0)
+        acc   = signal_stats.get("accuracy")
+        grade = signal_stats.get("grade", "N/A")
+        stats_parts.append(html.Span(f"SIGNAL HISTORY: {total} predictions", style={
+            "color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px",
+        }))
+        if acc is not None:
+            stats_parts.append(html.Span(f"  ·  ACCURACY: {acc}% [{grade}]", style={
+                "color": C["green"] if acc >= 60 else C["amber"],
+                "fontFamily": FONT_MONO, "fontSize": "9px", "fontWeight": "700",
+            }))
+
+    return html.Div([
+        _intel_section_title("Signal Feed  —  Institutional Activity Log"),
+        html.Div(rows, style={"maxHeight": "200px", "overflowY": "auto", "marginBottom": "8px"}),
+        html.Div(stats_parts, style={"display": "flex", "alignItems": "center",
+                                      "paddingTop": "6px", "borderTop": f"1px solid {C['border']}"}),
+    ])

@@ -40,7 +40,7 @@ except ImportError:
 from cachetools import TTLCache
 from config import (
     PORTFOLIO_TICKERS, TICKER_NAMES, TICKER_SECTOR,
-    INDICES, COMMODITIES, CRYPTO, FX, FUTURES,
+    INDICES, COMMODITIES, CRYPTO, FX, FUTURES, BONDS,
     PERIOD, INTERVAL, CACHE_TTL, NEWS_SOURCES,
 )
 
@@ -52,6 +52,7 @@ _briefing_cache     = TTLCache(maxsize=5,   ttl=900)        # 15-min AI briefing
 _fundamentals_cache = TTLCache(maxsize=50,  ttl=3600)       # 1-hour fundamentals cache
 _options_cache      = TTLCache(maxsize=30,  ttl=120)        # 2-min options cache (live during market hours)
 _meta_cache         = TTLCache(maxsize=200, ttl=86400)      # 24-hour name/sector cache for unknown tickers
+_calendar_cache     = TTLCache(maxsize=10,  ttl=1800)       # 30-min calendar cache
 
 # ── Sector → colour map for auto-detected tickers ─────────────────────────────
 _SECTOR_COLORS = {
@@ -195,7 +196,7 @@ def _add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if vol is not None:
         df["Vol_MA20"] = vol.rolling(20).mean()
 
-    # VWAP (anchored to start of displayed period — meaningful for swing traders)
+    # VWAP (anchored to start of displayed period)
     try:
         if vol is not None and (vol > 0).any():
             typical = (high + low + close) / 3
@@ -210,7 +211,6 @@ def _add_indicators(df: pd.DataFrame) -> pd.DataFrame:
             df["OBV"] = obv.on_balance_volume()
     except Exception:
         try:
-            # Manual fallback if ta library version doesn't support it
             direction = close.diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
             df["OBV"] = (vol * direction).cumsum()
         except Exception:
@@ -443,12 +443,30 @@ def get_ticker_data(ticker: str, force_refresh: bool = False) -> dict:
 
 _chart_cache = TTLCache(maxsize=100, ttl=CACHE_TTL)  # per (ticker, period, interval)
 
+# Short display periods don't have enough bars for MACD/ADX/BB on their own.
+# We fetch a longer "warmup" window, compute all indicators on that, then trim
+# back to the requested display window so the chart always has the full set.
+_WARMUP_FETCH = {
+    # (display_period, interval) → (fetch_period, fetch_interval)
+    ("1d",  "5m"):  ("60d", "5m"),    # 1-day view: fetch 60 days of 5-min bars
+    ("5d",  "30m"): ("60d", "30m"),   # 5-day view: fetch 60 days of 30-min bars
+    ("1mo", "1d"):  ("6mo", "1d"),    # 1-month view: fetch 6 months of daily bars
+}
+
+# How far back to keep after trimming (generous buffer to handle weekends/holidays)
+_TRIM_DELTA = {
+    "1d":  pd.Timedelta(hours=28),    # last trading session (~6.5 h + buffer)
+    "5d":  pd.Timedelta(days=8),      # 5 trading days + weekend buffer
+    "1mo": pd.Timedelta(days=33),     # 1 calendar month + buffer
+}
+
 
 def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> pd.DataFrame:
     """
-    Fetch OHLCV + indicators for a specific period/interval combination.
-    Used by the deep-dive chart so the user can switch time ranges without
-    invalidating the 6mo signal-scoring cache.
+    Fetch OHLCV + full indicators for any period/interval combination.
+    For short windows (1D, 5D, 1M) a longer warmup dataset is fetched so
+    MACD, ADX, BB, and RSI are fully computed, then the result is trimmed
+    to the requested display window.
     Returns the enriched DataFrame (or None on failure).
     """
     cache_key = f"chart_{ticker}_{period}_{interval}"
@@ -456,12 +474,29 @@ def get_chart_data(ticker: str, period: str = "6mo", interval: str = "1d") -> pd
         return _chart_cache[cache_key]
 
     try:
-        df = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=True)
+        fetch_period, fetch_interval = _WARMUP_FETCH.get(
+            (period, interval), (period, interval)
+        )
+
+        df = yf.Ticker(ticker).history(
+            period=fetch_period, interval=fetch_interval, auto_adjust=True
+        )
         if df is None or len(df) < 2:
             return None
+
         df.index = pd.to_datetime(df.index).tz_localize(None)
-        df = _add_indicators(df)
+        df = _add_indicators(df)        # computed on the full warmup window
         df.dropna(subset=["Close"], inplace=True)
+
+        # Trim to display window (only needed for short periods)
+        trim_delta = _TRIM_DELTA.get(period)
+        if trim_delta is not None and len(df) > 0:
+            cutoff = df.index[-1] - trim_delta
+            df = df[df.index > cutoff]
+
+        if df is None or len(df) < 2:
+            return None
+
         _chart_cache[cache_key] = df
         return df
     except Exception:
@@ -523,9 +558,11 @@ def get_market_data(section: str, force_refresh: bool = False) -> list:
         "crypto":      CRYPTO,
         "fx":          FX,
         "futures":     FUTURES,
+        "bonds":       BONDS,
     }
     symbols = mapping.get(section, [])
     rows = [r for r in (_fetch_market_row(*s) for s in symbols) if r is not None]
+    rows.sort(key=lambda r: r["chg_pct"], reverse=True)
     _market_cache[cache_key] = rows
     return rows
 
@@ -595,6 +632,62 @@ def get_futures_data(force_refresh: bool = False) -> list:
 # News — ticker-specific (yfinance) + multi-source RSS
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Keywords used to auto-classify articles. Priority order: GEOPOLITICAL > MACRO
+# > COMMODITIES > MARKETS. Articles from sources with a fixed "category" field
+# skip keyword detection and keep that source category as the default.
+_CATEGORY_KEYWORDS = {
+    "GEOPOLITICAL": [
+        "war", "conflict", "sanction", "military", "troops", "missile", "attack",
+        "invasion", "geopolit", "tariff", "trade war", "diplomat", "nato",
+        "russia", "ukraine", "china", "iran", "north korea", "taiwan",
+        "middle east", "israel", "hamas", "hezbollah", "treaty", "nuclear",
+        "ceasefire", "refugee", "occupation", "coup", "insurgent", "terror",
+        "arms deal", "embargo", "protest", "riot", "civil war", "airstrike",
+        "pentagon", "department of defense", "foreign minister", "g7", "g20",
+    ],
+    "MACRO": [
+        "federal reserve", "fed rate", "interest rate", "inflation", " cpi",
+        " ppi", " gdp", "recession", "central bank", "ecb ", "bank of england",
+        "monetary policy", "treasury yield", "bond yield", "unemployment",
+        "jobs report", "nonfarm payroll", "rate hike", "rate cut", "fomc",
+        "jerome powell", "quantitative easing", "quantitative tightening",
+        "fiscal policy", "debt ceiling", "imf ", "world bank", "trade deficit",
+        "balance of payments", "stagflation", "hyperinflation", "deflation",
+    ],
+    "COMMODITIES": [
+        "crude oil", "brent", " wti ", "opec", "natural gas", " lng ",
+        "gold price", "silver price", "copper price", "platinum",
+        "wheat price", "corn price", "soybean", "commodity", "energy price",
+        "oil price", "fuel price", "gasoline price", "lithium", "rare earth",
+        "iron ore", " coal ", "lumber price", "oil supply", "oil demand",
+    ],
+    "MARKETS": [
+        "stock market", "wall street", "s&p 500", "nasdaq", "dow jones",
+        "earnings report", "quarterly results", "ipo ", "merger", "acquisition",
+        "share price", "dividend", "buyback", "analyst upgrade", "analyst downgrade",
+        "hedge fund", "private equity", "trading", "rally", "selloff", "correction",
+        "bull market", "bear market", "market cap", "valuation",
+    ],
+}
+
+_CATEGORY_PRIORITY = ["GEOPOLITICAL", "MACRO", "COMMODITIES", "MARKETS"]
+
+
+def _classify_article(title: str, summary: str = "", source_category: str = "") -> str:
+    """
+    Classify a news article into one of: GEOPOLITICAL, MACRO, COMMODITIES,
+    MARKETS.  Keyword scan runs on title + summary (lowercased). The source's
+    own category is used as a fallback when no keywords match.
+    """
+    text = (title + " " + summary).lower()
+    for cat in _CATEGORY_PRIORITY:
+        for kw in _CATEGORY_KEYWORDS[cat]:
+            if kw in text:
+                return cat
+    # Fall back to the source's declared category, then MARKETS
+    return source_category if source_category else "MARKETS"
+
+
 def _parse_rss_date(entry) -> str:
     """Best-effort parse of RSS published date to a readable string."""
     try:
@@ -634,16 +727,17 @@ def get_ticker_news(ticker: str, max_items: int = 8) -> list:
             if not title:
                 continue
             articles.append({
-                "title":      title,
-                "publisher":  a.get("publisher", "Yahoo Finance"),
-                "source_tag": "YAHOO FIN",
+                "title":        title,
+                "publisher":    a.get("publisher", "Yahoo Finance"),
+                "source_tag":   "YAHOO FIN",
                 "source_color": "#6001d2",
-                "link":       a.get("link", "#"),
-                "time":       datetime.datetime.fromtimestamp(
-                                  a.get("providerPublishTime", 0)
-                              ).strftime("%b %d  %H:%M")
-                              if a.get("providerPublishTime") else "",
-                "ticker":     ticker,
+                "link":         a.get("link", "#"),
+                "time":         datetime.datetime.fromtimestamp(
+                                    a.get("providerPublishTime", 0)
+                                ).strftime("%b %d  %H:%M")
+                                if a.get("providerPublishTime") else "",
+                "ticker":       ticker,
+                "category":     "PORTFOLIO",
             })
     except Exception:
         pass
@@ -682,6 +776,8 @@ def get_rss_news(max_per_source: int = 12) -> list:
                     import re
                     summary = re.sub(r"<[^>]+>", "", entry["summary"])[:180].strip()
 
+                src_cat  = source.get("category", "")
+                category = _classify_article(title, summary, src_cat)
                 all_articles.append({
                     "title":        title,
                     "summary":      summary,
@@ -691,6 +787,7 @@ def get_rss_news(max_per_source: int = 12) -> list:
                     "link":         link,
                     "time":         _parse_rss_date(entry),
                     "ticker":       "",
+                    "category":     category,
                     "_raw_time":    entry.get("published_parsed") or entry.get("updated_parsed"),
                 })
         except Exception:
@@ -1078,6 +1175,250 @@ def last_updated() -> str:
     return datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Calendar  —  earnings, economic events, FOMC, IPOs
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Published FOMC meeting dates (decision day = second day of each 2-day meeting)
+_FOMC_DATES = [
+    "2025-05-07", "2025-06-18", "2025-07-30",
+    "2025-09-17", "2025-10-29", "2025-12-10",
+    "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
+    "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09",
+]
+
+
+def get_earnings_calendar(tickers: list) -> list:
+    """Get upcoming earnings dates for the given tickers (60-day window)."""
+    cache_key = f"earnings_cal_{'_'.join(sorted(tickers))}"
+    if cache_key in _calendar_cache:
+        return _calendar_cache[cache_key]
+
+    events = []
+    today     = datetime.date.today()
+    lookahead = today + datetime.timedelta(days=60)
+
+    for ticker in tickers:
+        try:
+            t   = yf.Ticker(ticker)
+            cal = t.calendar
+            if cal is None:
+                continue
+
+            # yfinance returns a dict: {'Earnings Date': [...], 'EPS Estimate': x, ...}
+            earnings_dates = cal.get("Earnings Date", [])
+            if not isinstance(earnings_dates, list):
+                earnings_dates = [earnings_dates]
+
+            eps_est = cal.get("EPS Estimate")
+            rev_est = cal.get("Revenue Estimate")
+
+            for ed in earnings_dates:
+                try:
+                    if hasattr(ed, "date"):
+                        ed = ed.date()
+                    elif isinstance(ed, str):
+                        ed = datetime.datetime.strptime(ed[:10], "%Y-%m-%d").date()
+                    if not (today <= ed <= lookahead):
+                        continue
+                except Exception:
+                    continue
+
+                parts = []
+                if eps_est is not None:
+                    parts.append(f"EPS est: ${eps_est:.2f}")
+                if rev_est is not None:
+                    if rev_est >= 1e9:
+                        parts.append(f"Rev est: ${rev_est/1e9:.1f}B")
+                    elif rev_est >= 1e6:
+                        parts.append(f"Rev est: ${rev_est/1e6:.0f}M")
+
+                events.append({
+                    "date":     ed,
+                    "category": "EARNINGS",
+                    "title":    f"{ticker}  Earnings",
+                    "subtitle": "  ·  ".join(parts),
+                    "impact":   "HIGH",
+                    "ticker":   ticker,
+                })
+        except Exception:
+            continue
+
+    events.sort(key=lambda e: e["date"])
+    _calendar_cache[cache_key] = events
+    return events
+
+
+def get_economic_calendar() -> list:
+    """Fetch high/medium-impact USD economic events from ForexFactory (this + next week)."""
+    cache_key = "economic_cal"
+    if cache_key in _calendar_cache:
+        return _calendar_cache[cache_key]
+
+    today  = datetime.date.today()
+    events = []
+    urls   = [
+        "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+        "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
+    ]
+
+    for url in urls:
+        try:
+            resp = requests.get(url, timeout=8,
+                                headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code != 200:
+                continue
+            for item in resp.json():
+                if item.get("country", "").upper() != "USD":
+                    continue
+                impact = item.get("impact", "").lower()
+                if impact not in ("high", "medium"):
+                    continue
+
+                date_str = item.get("date", "")
+                try:
+                    event_date = datetime.datetime.fromisoformat(date_str[:19]).date()
+                except Exception:
+                    continue
+                if event_date < today:
+                    continue
+
+                actual   = item.get("actual")   or ""
+                forecast = item.get("forecast") or ""
+                previous = item.get("previous") or ""
+                parts = []
+                if actual:
+                    parts.append(f"Actual: {actual}")
+                elif forecast:
+                    parts.append(f"Forecast: {forecast}")
+                if previous:
+                    parts.append(f"Prev: {previous}")
+
+                events.append({
+                    "date":     event_date,
+                    "category": "ECONOMIC",
+                    "title":    item.get("title", "Economic Event"),
+                    "subtitle": "  ·  ".join(parts),
+                    "impact":   "HIGH" if impact == "high" else "MEDIUM",
+                    "ticker":   "",
+                })
+        except Exception:
+            continue
+
+    # Deduplicate by (date, title)
+    seen, deduped = set(), []
+    for e in events:
+        key = (e["date"], e["title"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(e)
+    deduped.sort(key=lambda e: e["date"])
+    _calendar_cache[cache_key] = deduped
+    return deduped
+
+
+def get_fomc_calendar() -> list:
+    """Return upcoming FOMC decision dates."""
+    today  = datetime.date.today()
+    events = []
+    for date_str in _FOMC_DATES:
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        if dt >= today:
+            events.append({
+                "date":     dt,
+                "category": "FED",
+                "title":    "FOMC Rate Decision",
+                "subtitle": "Federal Open Market Committee meeting",
+                "impact":   "HIGH",
+                "ticker":   "",
+            })
+    return events
+
+
+def get_ipo_calendar() -> list:
+    """Fetch upcoming IPOs from the NASDAQ public API."""
+    cache_key = "ipo_cal"
+    if cache_key in _calendar_cache:
+        return _calendar_cache[cache_key]
+
+    today  = datetime.date.today()
+    events = []
+    try:
+        url  = "https://api.nasdaq.com/api/ipo/alldata?type=upcoming&limit=20"
+        hdrs = {
+            "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                           "AppleWebKit/537.36 Chrome/120.0 Safari/537.36"),
+            "Accept": "application/json",
+        }
+        resp = requests.get(url, headers=hdrs, timeout=8)
+        if resp.status_code == 200:
+            rows = (resp.json()
+                    .get("data", {}) or {})
+            rows = rows.get("upcomingTable", {}).get("rows", []) or []
+            for row in rows:
+                date_str = (row.get("pricedDate") or
+                            row.get("expectedPriceDate") or "")
+                if not date_str:
+                    continue
+                dt = None
+                for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%b %d, %Y"):
+                    try:
+                        dt = datetime.datetime.strptime(date_str.strip(), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if dt is None or dt < today:
+                    continue
+
+                company = row.get("companyName", "Unknown")
+                symbol  = row.get("proposedTickerSymbol", "")
+                lo      = row.get("priceRangeLow",  "")
+                hi      = row.get("priceRangeHigh", "")
+                parts   = []
+                if symbol:
+                    parts.append(f"Ticker: {symbol}")
+                if lo and hi:
+                    parts.append(f"Range: ${lo}–${hi}")
+                elif lo:
+                    parts.append(f"Est. price: ${lo}")
+
+                events.append({
+                    "date":     dt,
+                    "category": "IPO",
+                    "title":    f"{company}",
+                    "subtitle": "  ·  ".join(parts),
+                    "impact":   "MEDIUM",
+                    "ticker":   symbol,
+                })
+    except Exception:
+        pass
+
+    events.sort(key=lambda e: e["date"])
+    _calendar_cache[cache_key] = events
+    return events
+
+
+def get_full_calendar(tickers: list) -> list:
+    """Merge all calendar sources into a single date-sorted list."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results = []
+    fns = [
+        lambda: get_earnings_calendar(tickers),
+        get_economic_calendar,
+        get_fomc_calendar,
+        get_ipo_calendar,
+    ]
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(fn): fn for fn in fns}
+        for fut in as_completed(futures):
+            try:
+                results.extend(fut.result())
+            except Exception:
+                pass
+    results.sort(key=lambda e: e["date"])
+    return results
+
+
 def clear_cache():
     _ticker_cache.clear()
     _market_cache.clear()
@@ -1087,3 +1428,4 @@ def clear_cache():
     _fundamentals_cache.clear()
     _options_cache.clear()
     _meta_cache.clear()
+    _calendar_cache.clear()

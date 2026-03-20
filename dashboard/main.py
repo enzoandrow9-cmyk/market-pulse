@@ -20,6 +20,7 @@ from config import C, PORTFOLIO_TICKERS, DEFAULT_SETTINGS
 import data_manager as dm
 import chart_builders as cb
 import layouts as ly
+import intelligence as intel
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App init
@@ -363,6 +364,10 @@ def render_page(tab, settings, selected_ticker):
         return ly.build_deepdive_tab(initial_ticker=ticker, tickers=active_tickers)
     elif tab == "market":
         return ly.build_market_tab()
+    elif tab == "intelligence":
+        return ly.build_intelligence_tab()
+    elif tab == "calendar":
+        return ly.build_calendar_tab()
     elif tab == "news":
         return ly.build_newsfeed_tab()
     elif tab == "settings":
@@ -391,6 +396,82 @@ def update_ai_briefing(store_data):
         return result["text"], time_str
     except Exception as exc:
         return f"AI Briefing unavailable ({exc})", ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Intelligence tab — all five panels
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("intel-regime-panel",     "children"),
+    Output("intel-crossasset-panel", "children"),
+    Output("intel-sm-panel",         "children"),
+    Output("intel-trade-panel",      "children"),
+    Output("intel-signal-feed",      "children"),
+    Input("store-refresh-ts",        "data"),
+    Input("main-tabs",               "value"),
+    State("store-portfolio",         "data"),
+    State("user-settings",           "data"),
+    prevent_initial_call=False,
+)
+def update_intelligence_panels(ts, active_tab, portfolio_store, settings):
+    """
+    Runs all intelligence layers and populates the five panels.
+    Only computes when the intelligence tab is active (skips otherwise).
+    """
+    if active_tab != "intelligence":
+        return (dash.no_update,) * 5
+
+    # Resolve active tickers
+    tickers = PORTFOLIO_TICKERS
+    try:
+        if settings:
+            port_key = settings.get("active_portfolio", "default")
+            port     = settings.get("portfolios", {}).get(port_key, {})
+            t_list   = port.get("tickers", [])
+            if t_list:
+                tickers = t_list
+    except Exception:
+        pass
+
+    # Re-hydrate portfolio data with full DataFrames (store strips them)
+    portfolio_data = {}
+    try:
+        for t in tickers:
+            portfolio_data[t] = dm.get_ticker_data(t)
+    except Exception:
+        pass
+
+    try:
+        report = intel.get_full_intelligence(tickers, portfolio_data)
+    except Exception as e:
+        traceback.print_exc()
+        err = dash.html.Div(f"Intelligence engine error: {e}",
+                            style={"color": C["red"], "fontFamily": "'IBM Plex Mono'", "fontSize": "11px"})
+        return err, err, err, err, err
+
+    regime      = report.get("regime",             {})
+    cross_intel = report.get("cross_intel",        {})
+    sm_scores   = report.get("smart_money_scores", {})
+    predictions = report.get("predictions",        {})
+    trade_ideas = report.get("trade_ideas",        [])
+    signal_feed = report.get("signal_feed",        [])
+    stats       = report.get("signal_stats",       {})
+
+    # Record new predictions for learning system (fire-and-forget)
+    try:
+        for ticker, pred in predictions.items():
+            intel.record_prediction(pred, sm_scores.get(ticker, {}))
+    except Exception:
+        pass
+
+    return (
+        ly.build_intel_regime_panel(regime),
+        ly.build_intel_crossasset_panel(cross_intel),
+        ly.build_intel_sm_leaderboard(sm_scores, predictions),
+        ly.build_intel_trade_ideas(trade_ideas),
+        ly.build_intel_signal_feed(signal_feed, stats),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -589,6 +670,7 @@ def update_deepdive(ticker, period, ts):
     Output("market-futures",     "children"),
     Output("market-indices",     "children"),
     Output("market-crypto",      "children"),
+    Output("market-bonds",       "children"),
     Output("market-commodities", "children"),
     Output("market-fx",          "children"),
     Input("store-refresh-ts",    "data"),
@@ -605,7 +687,7 @@ def update_market_monitor(ts):
                              "fontSize": "11px"})
 
     # Standard sections
-    sections = ["indices", "crypto", "commodities", "fx"]
+    sections = ["indices", "crypto", "bonds", "commodities", "fx"]
     results  = [futures_out]
     for section in sections:
         try:
@@ -619,16 +701,271 @@ def update_market_monitor(ts):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# News Feed tab callback
+# Calendar tab — filter toggles + content
 # ─────────────────────────────────────────────────────────────────────────────
+
+_CAL_CATS   = ["EARNINGS", "ECONOMIC", "FED", "IPO"]
+_CAL_COLORS = {
+    "EARNINGS": C["amber"],
+    "ECONOMIC": "#38bdf8",
+    "FED":      "#a78bfa",
+    "IPO":      "#22c55e",
+}
+
+
+@app.callback(
+    Output("cal-filter",                             "data"),
+    Output({"type": "cal-filter-btn", "index": ALL}, "style"),
+    Input({"type":  "cal-filter-btn", "index": ALL}, "n_clicks"),
+    State("cal-filter",                              "data"),
+    prevent_initial_call=True,
+)
+def toggle_cal_filter(n_clicks_list, active_cats):
+    ctx = callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        return dash.no_update, dash.no_update
+
+    try:
+        triggered_id = ctx.triggered[0]["prop_id"]
+        parsed       = json.loads(triggered_id.split(".n_clicks")[0])
+        clicked_cat  = parsed["index"]
+    except Exception:
+        return dash.no_update, dash.no_update
+
+    active_cats = list(active_cats or _CAL_CATS)
+    if clicked_cat in active_cats:
+        # Don't allow deselecting the last category
+        if len(active_cats) > 1:
+            active_cats.remove(clicked_cat)
+    else:
+        active_cats.append(clicked_cat)
+
+    styles = []
+    for cat in _CAL_CATS:
+        color  = _CAL_COLORS.get(cat, C["amber"])
+        active = cat in active_cats
+        styles.append({
+            "background":    f"color-mix(in srgb, {color} 18%, transparent)" if active else "transparent",
+            "border":        f"1px solid {color}" if active else f"1px solid {C['border']}",
+            "borderRadius":  "2px",
+            "color":         color if active else C["text_secondary"],
+            "fontFamily":    "'IBM Plex Mono', monospace",
+            "fontSize":      "10px",
+            "fontWeight":    "700" if active else "600",
+            "padding":       "4px 14px",
+            "cursor":        "pointer",
+            "letterSpacing": "0.06em",
+            "whiteSpace":    "nowrap",
+        })
+    return active_cats, styles
+
+
+@app.callback(
+    Output("cal-month",       "data"),
+    Output("cal-month-label", "children"),
+    Input("cal-prev-month",   "n_clicks"),
+    Input("cal-next-month",   "n_clicks"),
+    State("cal-month",        "data"),
+    prevent_initial_call=True,
+)
+def navigate_cal_month(prev_clicks, next_clicks, month_data):
+    import calendar as _cal_lib
+    ctx       = callback_context
+    triggered = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
+
+    year  = (month_data or {}).get("year",  datetime.date.today().year)
+    month = (month_data or {}).get("month", datetime.date.today().month)
+
+    if "prev" in triggered:
+        month -= 1
+        if month < 1:
+            month = 12
+            year -= 1
+    else:
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+
+    label = datetime.datetime(year, month, 1).strftime("%B %Y").upper()
+    return {"year": year, "month": month}, label
+
+
+@app.callback(
+    Output("calendar-content", "children"),
+    Input("store-refresh-ts",  "data"),
+    Input("cal-filter",        "data"),
+    Input("cal-month",         "data"),
+    State("user-settings",     "data"),
+    prevent_initial_call=False,
+)
+def update_calendar(ts, active_cats, month_data, settings):
+    active_cats = active_cats or _CAL_CATS
+    today       = datetime.date.today()
+    year        = (month_data or {}).get("year",  today.year)
+    month       = (month_data or {}).get("month", today.month)
+
+    # Resolve portfolio tickers for earnings lookup
+    tickers = PORTFOLIO_TICKERS
+    try:
+        if settings:
+            port_key = settings.get("active_portfolio", "default")
+            port     = settings.get("portfolios", {}).get(port_key, {})
+            t_list   = port.get("tickers", [])
+            if t_list:
+                tickers = t_list
+    except Exception:
+        pass
+
+    try:
+        events = dm.get_full_calendar(tickers)
+        return ly.build_calendar_view(events, active_cats, year, month)
+    except Exception as e:
+        return dash.html.Div(f"Calendar error: {e}",
+                             style={"color": C["red"], "fontFamily": "'IBM Plex Mono'",
+                                    "fontSize": "11px"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Calendar — event modal open / close
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("cal-modal-event",    "data"),
+    Input({"type": "cal-event-pill", "index": ALL}, "n_clicks"),
+    Input("cal-modal-close",     "n_clicks"),
+    Input("cal-modal-backdrop",  "n_clicks"),
+    prevent_initial_call=True,
+)
+def select_cal_event(pill_clicks, close_clicks, backdrop_clicks):
+    ctx       = callback_context
+    triggered = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
+
+    # Close on backdrop or X button
+    if "cal-modal-close" in triggered or "cal-modal-backdrop" in triggered:
+        return None
+
+    # Ignore if no pill was actually clicked
+    if not any(pill_clicks):
+        return dash.no_update
+
+    try:
+        raw_index = json.loads(triggered.split(".n_clicks")[0])["index"]
+        return json.loads(raw_index)
+    except Exception:
+        return dash.no_update
+
+
+@app.callback(
+    Output("cal-modal-backdrop", "style"),
+    Output("cal-modal-panel",    "style"),
+    Output("cal-modal-body",     "children"),
+    Input("cal-modal-event",     "data"),
+    prevent_initial_call=False,
+)
+def render_cal_modal(event_data):
+    _hidden = {"display": "none"}
+    _panel_base = {
+        "position":     "fixed",
+        "top":          "50%",
+        "left":         "50%",
+        "transform":    "translate(-50%, -50%)",
+        "width":        "540px",
+        "maxWidth":     "92vw",
+        "maxHeight":    "80vh",
+        "overflowY":    "auto",
+        "background":   C["bg_panel"],
+        "border":       f"1px solid {C['border']}",
+        "borderRadius": "6px",
+        "padding":      "22px 24px 24px",
+        "zIndex":       "1000",
+        "boxShadow":    "0 24px 60px rgba(0,0,0,0.7)",
+    }
+
+    if not event_data:
+        return _hidden, {**_panel_base, "display": "none"}, []
+
+    backdrop_style = {
+        "display":    "block",
+        "position":   "fixed",
+        "top":        "0",
+        "left":       "0",
+        "right":      "0",
+        "bottom":     "0",
+        "background": "rgba(0, 6, 20, 0.80)",
+        "zIndex":     "999",
+        "cursor":     "pointer",
+    }
+
+    return (
+        backdrop_style,
+        {**_panel_base, "display": "flex", "flexDirection": "column"},
+        ly.build_cal_modal_body(event_data),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# News Feed tab — category filter + feed update
+# ─────────────────────────────────────────────────────────────────────────────
+
+_NEWS_CAT_META = {
+    "ALL":          C["amber"],
+    "PORTFOLIO":    C["amber"],
+    "GEOPOLITICAL": "#ef4444",
+    "MACRO":        "#3b82f6",
+    "MARKETS":      "#22c55e",
+    "COMMODITIES":  "#f97316",
+}
+_NEWS_CAT_LABELS = ["ALL", "PORTFOLIO", "GEOPOLITICAL", "MACRO", "MARKETS", "COMMODITIES"]
+
+
+@app.callback(
+    Output("news-filter", "data"),
+    Output({"type": "news-filter-btn", "index": ALL}, "style"),
+    Input({"type": "news-filter-btn", "index": ALL}, "n_clicks"),
+    State("news-filter", "data"),
+    prevent_initial_call=True,
+)
+def select_news_filter(n_clicks_list, current_filter):
+    ctx = callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        return dash.no_update, dash.no_update
+
+    try:
+        triggered_id = ctx.triggered[0]["prop_id"]
+        parsed       = json.loads(triggered_id.split(".n_clicks")[0])
+        new_filter   = parsed["index"]
+    except Exception:
+        return dash.no_update, dash.no_update
+
+    styles = []
+    for cat in _NEWS_CAT_LABELS:
+        color  = _NEWS_CAT_META.get(cat, C["amber"])
+        active = cat == new_filter
+        styles.append({
+            "background":    f"color-mix(in srgb, {color} 18%, transparent)" if active else "transparent",
+            "border":        f"1px solid {color}" if active else f"1px solid {C['border']}",
+            "borderRadius":  "2px",
+            "color":         color if active else C["text_secondary"],
+            "fontFamily":    "'IBM Plex Mono', monospace",
+            "fontSize":      "10px",
+            "fontWeight":    "700" if active else "600",
+            "padding":       "4px 12px",
+            "cursor":        "pointer",
+            "letterSpacing": "0.06em",
+            "whiteSpace":    "nowrap",
+        })
+    return new_filter, styles
+
 
 @app.callback(
     Output("news-feed-content", "children"),
     Input("store-refresh-ts",   "data"),
+    Input("news-filter",        "data"),
     State("user-settings",      "data"),
     prevent_initial_call=False,
 )
-def update_news_feed(ts, settings):
+def update_news_feed(ts, filter_cat, settings):
     try:
         # Active portfolio tickers
         tickers = PORTFOLIO_TICKERS
@@ -640,8 +977,8 @@ def update_news_feed(ts, settings):
                 tickers = t_list
 
         portfolio_news = dm.get_portfolio_news(tickers=tickers, max_per_ticker=4)
-        rss_news       = dm.get_rss_news(max_per_source=10)
-        return ly.build_news_feed(portfolio_news, rss_news)
+        rss_news       = dm.get_rss_news(max_per_source=8)
+        return ly.build_news_feed(portfolio_news, rss_news, filter_cat=filter_cat or "ALL")
     except Exception as e:
         traceback.print_exc()
         return dash.html.Div(f"Error fetching news: {e}",

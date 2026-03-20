@@ -47,9 +47,18 @@ INDICES = [
 COMMODITIES = [
     ("GC=F",   "Gold",       "Precious Metals"),
     ("SI=F",   "Silver",     "Precious Metals"),
+    ("PL=F",   "Platinum",   "Precious Metals"),
     ("CL=F",   "Crude Oil",  "Energy"),
+    ("BZ=F",   "Brent Oil",  "Energy"),
     ("NG=F",   "Nat Gas",    "Energy"),
     ("HG=F",   "Copper",     "Industrial"),
+]
+
+BONDS = [
+    ("^TNX",   "US 10Y",     "Treasury"),
+    ("^IRX",   "US 3M",      "Treasury"),
+    ("^TYX",   "US 30Y",     "Treasury"),
+    ("^FVX",   "US 5Y",      "Treasury"),
 ]
 
 CRYPTO = [
@@ -170,47 +179,107 @@ CACHE_TTL        = 300        # cache time-to-live in seconds (5 min)
 
 # ── News RSS sources ──────────────────────────────────────────────────────────
 NEWS_SOURCES = [
+    # ── Market & Finance ──────────────────────────────────────────────────────
     {
-        "name":  "Reuters",
-        "url":   "https://feeds.reuters.com/reuters/businessNews",
-        "color": "#ff8000",
-        "tag":   "REUTERS",
+        "name":     "Reuters Business",
+        "url":      "https://feeds.reuters.com/reuters/businessNews",
+        "color":    "#ff8000",
+        "tag":      "REUTERS",
+        "category": "MARKETS",
     },
     {
-        "name":  "CNBC",
-        "url":   "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "color": "#005594",
-        "tag":   "CNBC",
+        "name":     "CNBC",
+        "url":      "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "color":    "#005594",
+        "tag":      "CNBC",
+        "category": "MARKETS",
     },
     {
-        "name":  "MarketWatch",
-        "url":   "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
-        "color": "#006400",
-        "tag":   "MKTWATCH",
+        "name":     "MarketWatch",
+        "url":      "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
+        "color":    "#006400",
+        "tag":      "MKTWATCH",
+        "category": "MARKETS",
     },
     {
-        "name":  "Yahoo Finance",
-        "url":   "https://finance.yahoo.com/rss/topstories",
-        "color": "#6001d2",
-        "tag":   "YAHOO FIN",
+        "name":     "Yahoo Finance",
+        "url":      "https://finance.yahoo.com/rss/topstories",
+        "color":    "#6001d2",
+        "tag":      "YAHOO FIN",
+        "category": "MARKETS",
     },
     {
-        "name":  "The Economist",
-        "url":   "https://www.economist.com/finance-and-economics/rss.xml",
-        "color": "#e3120b",
-        "tag":   "ECONOMIST",
+        "name":     "The Economist",
+        "url":      "https://www.economist.com/finance-and-economics/rss.xml",
+        "color":    "#e3120b",
+        "tag":      "ECONOMIST",
+        "category": "MACRO",
     },
     {
-        "name":  "Investopedia",
-        "url":   "https://www.investopedia.com/feedbuilder/feed/getfeed?feedName=rss_headline",
-        "color": "#0066cc",
-        "tag":   "INVSTPDIA",
+        "name":     "Investopedia",
+        "url":      "https://www.investopedia.com/feedbuilder/feed/getfeed?feedName=rss_headline",
+        "color":    "#0066cc",
+        "tag":      "INVSTPDIA",
+        "category": "MARKETS",
     },
     {
-        "name":  "CNN Business",
-        "url":   "https://rss.cnn.com/rss/money_latest.rss",
-        "color": "#cc0000",
-        "tag":   "CNN BIZ",
+        "name":     "CNN Business",
+        "url":      "https://rss.cnn.com/rss/money_latest.rss",
+        "color":    "#cc0000",
+        "tag":      "CNN BIZ",
+        "category": "MARKETS",
+    },
+    # ── Macro & Policy ────────────────────────────────────────────────────────
+    {
+        "name":     "Federal Reserve",
+        "url":      "https://www.federalreserve.gov/feeds/press_all.xml",
+        "color":    "#1d4ed8",
+        "tag":      "FED",
+        "category": "MACRO",
+    },
+    {
+        "name":     "BBC Business",
+        "url":      "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "color":    "#bb1919",
+        "tag":      "BBC BIZ",
+        "category": "MACRO",
+    },
+    # ── Geopolitical & Global ─────────────────────────────────────────────────
+    {
+        "name":     "Reuters World",
+        "url":      "https://feeds.reuters.com/Reuters/worldNews",
+        "color":    "#ff6600",
+        "tag":      "REUTERS WLD",
+        "category": "GEOPOLITICAL",
+    },
+    {
+        "name":     "BBC World",
+        "url":      "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "color":    "#bb1919",
+        "tag":      "BBC WORLD",
+        "category": "GEOPOLITICAL",
+    },
+    {
+        "name":     "Al Jazeera",
+        "url":      "https://www.aljazeera.com/xml/rss/all.xml",
+        "color":    "#6f8f1e",
+        "tag":      "AL JAZEERA",
+        "category": "GEOPOLITICAL",
+    },
+    {
+        "name":     "Deutsche Welle",
+        "url":      "https://rss.dw.com/rdf/rss-en-world",
+        "color":    "#c8001e",
+        "tag":      "DW",
+        "category": "GEOPOLITICAL",
+    },
+    # ── Commodities & Energy ──────────────────────────────────────────────────
+    {
+        "name":     "OilPrice.com",
+        "url":      "https://oilprice.com/rss/main",
+        "color":    "#78350f",
+        "tag":      "OILPRICE",
+        "category": "COMMODITIES",
     },
 ]
 
