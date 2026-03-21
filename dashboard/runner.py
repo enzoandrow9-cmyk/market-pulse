@@ -143,9 +143,11 @@ class QuantLabRunner:
         parsed = self.parse_command(command)
         action = parsed["action"]
         if action == "backtest":
-            return self.run_backtest(parsed["symbols"], parsed["strategies"], parsed["start_date"], parsed["end_date"], parsed.get("extras", {}), command)
+            extras = parsed.get("extras", {})
+            return self.run_backtest(parsed["symbols"], parsed["strategies"], parsed["start_date"], parsed["end_date"], extras, command)
         if action == "research":
-            interval = str(parsed.get("extras", {}).get("interval", "1d"))
+            extras = parsed.get("extras", {})
+            interval = str(extras.get("interval", "1d"))
             loaded = self.data_handler.load(parsed["symbols"], parsed["start_date"], parsed["end_date"], interval=interval)
             factor_pack = self.factor_engine.evaluate(loaded.prices)
             return {
@@ -155,12 +157,14 @@ class QuantLabRunner:
                 "regimes": {symbol: detect_market_regime(frame) for symbol, frame in loaded.prices.items()},
             }
         if action == "regime":
-            interval = str(parsed.get("extras", {}).get("interval", "1d"))
+            extras = parsed.get("extras", {})
+            interval = str(extras.get("interval", "1d"))
             loaded = self.data_handler.load([parsed["symbol"]], parsed["start_date"], parsed["end_date"], interval=interval)
             frame = loaded.prices[parsed["symbol"]]
             return {"command": command, "mode": "regime", "regime": detect_market_regime(frame)}
         if action == "optimize":
-            return self.run_optimization(parsed["symbol"], parsed["strategy"], parsed["start_date"], parsed["end_date"], parsed.get("extras", {}), command)
+            extras = parsed.get("extras", {})
+            return self.run_optimization(parsed["symbol"], parsed["strategy"], parsed["start_date"], parsed["end_date"], extras, command)
         raise ValueError(f"Unhandled action: {action}")
 
     def run_backtest(
@@ -187,6 +191,7 @@ class QuantLabRunner:
             interval=str(extras.get("interval", "1d")),
             simulation_mode=str(extras.get("mode", "event")),
             initial_capital=float(extras.get("capital", 1_000_000.0)),
+            benchmark="SPY",
             commission_bps=float(extras.get("commission_bps", 1.0)),
             slippage_bps=float(extras.get("slippage_bps", 2.0)),
             market_impact_coefficient=float(extras.get("impact_k", 0.1)),
