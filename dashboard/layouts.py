@@ -54,35 +54,45 @@ VALUE_STYLE = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 _NAV_TABS = [
-    ("PORTFOLIO",    "portfolio"),
-    ("DEEP DIVE",    "deepdive"),
-    ("MARKET",       "market"),
-    ("QUANT LAB",    "quantlab"),
-    ("INTELLIGENCE", "intelligence"),
-    ("CALENDAR",     "calendar"),
-    ("NEWS",         "news"),
-    ("⚙ SETTINGS",  "settings"),
+    ("◈", "PORTFOLIO",    "portfolio"),
+    ("⊕", "DEEP DIVE",    "deepdive"),
+    ("▦", "MARKET",       "market"),
+    ("⬡", "QUANT LAB",   "quantlab"),
+    ("◆", "INTELLIGENCE", "intelligence"),
+    ("▧", "CALENDAR",     "calendar"),
+    ("≡", "NEWS",         "news"),
+    ("⚙", "SETTINGS",    "settings"),
 ]
 
 NAV_BTN_STYLE = {
+    "display":       "flex",
+    "alignItems":    "center",
+    "gap":           "10px",
+    "width":         "100%",
+    "padding":       "13px 20px",
     "fontFamily":    FONT_MONO,
-    "fontSize":      "11px",
+    "fontSize":      "10px",
     "fontWeight":    "600",
-    "letterSpacing": "0.08em",
+    "letterSpacing": "0.10em",
     "textTransform": "uppercase",
     "color":         C["text_secondary"],
     "background":    "transparent",
     "border":        "none",
-    "borderBottom":  "2px solid transparent",
-    "padding":       "14px 8px",
+    "borderLeft":    "3px solid transparent",
+    "borderRight":   "none",
+    "borderTop":     "none",
+    "borderBottom":  "none",
     "cursor":        "pointer",
+    "textAlign":     "left",
     "whiteSpace":    "nowrap",
+    "boxSizing":     "border-box",
 }
 
 NAV_BTN_ACTIVE_STYLE = {
     **NAV_BTN_STYLE,
-    "color":        "var(--accent)",
-    "borderBottom": "2px solid var(--accent)",
+    "color":      "var(--accent)",
+    "borderLeft": "3px solid var(--accent)",
+    "background": C["bg_hover"],
 }
 
 
