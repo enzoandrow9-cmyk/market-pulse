@@ -2,3 +2,44 @@
 .tab-container {
     display: none !important;
 }
+
+/* ── Quant Lab segmented controls — accent-driven, no Bootstrap amber ── */
+.quantlab-seg-btn {
+    color:          var(--accent);
+    border-color:   var(--accent);
+    background:     transparent;
+    font-family:    'IBM Plex Mono', 'Courier New', monospace;
+    font-size:      10px;
+    letter-spacing: 0.06em;
+    transition:     background 0.15s, color 0.15s;
+}
+.quantlab-seg-btn:hover {
+    background:   color-mix(in srgb, var(--accent) 15%, transparent);
+    color:        var(--accent);
+    border-color: var(--accent);
+}
+.quantlab-seg-btn.active,
+.btn-check:checked + .quantlab-seg-btn {
+    background:   color-mix(in srgb, var(--accent) 22%, transparent);
+    color:        var(--accent);
+    border-color: var(--accent);
+    box-shadow:   none;
+}
+.quantlab-seg-btn:focus,
+.quantlab-seg-btn:focus-visible {
+    box-shadow:   0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+    outline:      none;
+}
+
+/* ── Quant Lab dropdowns — terminal palette ── */
+.bloomberg-dropdown .Select-control,
+.bloomberg-dropdown .Select-menu-outer {
+    background:   #0a1020 !important;
+    border-color: #1e2d4a !important;
+    color:        #e2e8f0 !important;
+    font-family:  'IBM Plex Mono', monospace !important;
+    font-size:    11px !important;
+}
+.bloomberg-dropdown .Select-option.is-focused {
+    background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+}

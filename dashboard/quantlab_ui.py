@@ -58,6 +58,10 @@ OPTIMIZER_OPTIONS = [
     {"label": "Bayesian", "value": "bayesian"},
     {"label": "Genetic", "value": "genetic"},
 ]
+WORKFLOW_VALUES = {item["value"] for item in ACTION_OPTIONS}
+STRATEGY_VALUES = {item["value"] for item in STRATEGY_OPTIONS}
+MODE_VALUES = {item["value"] for item in MODE_OPTIONS}
+INTERVAL_VALUES = {item["value"] for item in INTERVAL_OPTIONS}
 
 
 def _panel(children, min_height: str = "180px"):
@@ -111,7 +115,7 @@ def _segmented_control(component_id: str, options: list[dict], value: str):
         inline=True,
         className="btn-group quantlab-segmented",
         inputClassName="btn-check",
-        labelClassName="btn btn-outline-warning btn-sm",
+        labelClassName="btn quantlab-seg-btn btn-sm",
         labelCheckedClassName="active",
         style={"display": "flex", "flexWrap": "wrap", "gap": "6px"},
     )
@@ -121,7 +125,6 @@ def _clean_symbols(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [token.upper() for token in re.split(r"[\s,]+", raw.strip()) if token]
-
 
 def build_command_from_form(
     action: str | None,
@@ -401,7 +404,17 @@ def build_quantlab_tab() -> html.Div:
                     _section_title("Advanced Command Preview"),
                     dcc.Textarea(
                         id="quantlab-command",
-                        value="backtest AAPL sma_crossover 2018-01-01 2024-01-01 mode=event capital=250000 interval=1d",
+                        value=build_command_from_form(
+                            action="backtest",
+                            symbols="AAPL",
+                            strategies=["sma_crossover"],
+                            start_date="2018-01-01",
+                            end_date="2024-01-01",
+                            simulation_mode="event",
+                            capital=250000,
+                            interval="1d",
+                            optimization_method="grid",
+                        ),
                         style={
                             **INPUT_STYLE,
                             "minHeight": "74px",
