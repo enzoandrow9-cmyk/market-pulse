@@ -79,9 +79,6 @@ NAV_BTN_STYLE = {
     "background":    "transparent",
     "border":        "none",
     "borderLeft":    "3px solid transparent",
-    "borderRight":   "none",
-    "borderTop":     "none",
-    "borderBottom":  "none",
     "cursor":        "pointer",
     "textAlign":     "left",
     "whiteSpace":    "nowrap",
@@ -90,75 +87,100 @@ NAV_BTN_STYLE = {
 
 NAV_BTN_ACTIVE_STYLE = {
     **NAV_BTN_STYLE,
-    "color":      "var(--accent)",
-    "borderLeft": "3px solid var(--accent)",
-    "background": C["bg_hover"],
+    "color":       "var(--accent)",
+    "borderLeft":  "3px solid var(--accent)",
+    "background":  C["bg_hover"],
 }
 
 
 def build_navbar() -> html.Div:
+    """Topbar — clock + refresh only. Offset right of the fixed sidebar."""
     return html.Div([
-        # Left: brand
-        html.Div([
-            html.Span("◈ ", style={"color": "var(--accent)", "fontSize": "16px"}),
-            html.Span("MARKET", style={"color": C["text_white"], "fontWeight": "900",
-                                       "fontFamily": FONT_MONO, "fontSize": "14px",
-                                       "letterSpacing": "0.15em"}),
-            html.Span(" PULSE", style={"color": "var(--accent)", "fontWeight": "900",
-                                       "fontFamily": FONT_MONO, "fontSize": "14px",
-                                       "letterSpacing": "0.15em"}),
-            html.Span("  TERMINAL", style={"color": C["text_dim"], "fontWeight": "400",
-                                            "fontFamily": FONT_MONO, "fontSize": "10px",
-                                            "letterSpacing": "0.18em", "marginLeft": "6px"}),
-        ], style={"display":"flex","alignItems":"center","gap":"0px","flexShrink":"0"}),
+        html.Span(id="clock-display",
+                  style={"color": C["text_secondary"], "fontFamily": FONT_MONO,
+                         "fontSize": "11px", "marginRight": "16px"}),
+        html.Button("⟳ REFRESH", id="refresh-btn",
+                    style={
+                        "background":   "transparent",
+                        "border":       "1px solid var(--accent)",
+                        "color":        "var(--accent)",
+                        "fontFamily":   FONT_MONO,
+                        "fontSize":     "10px",
+                        "padding":      "5px 12px",
+                        "cursor":       "pointer",
+                        "borderRadius": "2px",
+                        "letterSpacing":"0.08em",
+                    }),
+    ], style={
+        "display":        "flex",
+        "alignItems":     "center",
+        "justifyContent": "flex-end",
+        "background":     C["bg_panel"],
+        "borderBottom":   f"1px solid {C['border']}",
+        "padding":        "0 20px",
+        "height":         "46px",
+        "position":       "sticky",
+        "top":            "0",
+        "zIndex":         "999",
+        "marginLeft":     "160px",
+    })
 
-        # Center: custom nav buttons — full CSS control, no Dash internals
+
+def build_sidebar() -> html.Div:
+    """Fixed left sidebar — brand block + nav buttons."""
+    return html.Div([
+        # Brand block — same 46px height as topbar
         html.Div([
-            html.Button(
-                label,
-                id=f"nav-btn-{val}",
-                n_clicks=0,
-                style=NAV_BTN_ACTIVE_STYLE if val == "portfolio" else NAV_BTN_STYLE,
-            )
-            for label, val in _NAV_TABS
+            html.Span("◈", style={"color": "var(--accent)", "fontSize": "18px",
+                                   "marginRight": "10px"}),
+            html.Div([
+                html.Div("MARKET PULSE", style={
+                    "color": C["text_white"], "fontFamily": FONT_MONO,
+                    "fontSize": "11px", "fontWeight": "900", "letterSpacing": "0.12em",
+                }),
+                html.Div("TERMINAL", style={
+                    "color": C["text_dim"], "fontFamily": FONT_MONO,
+                    "fontSize": "8px", "letterSpacing": "0.18em", "marginTop": "2px",
+                }),
+            ]),
         ], style={
-            "display":        "flex",
-            "flex":           "1",
-            "justifyContent": "space-evenly",
-            "alignItems":     "center",
-            "height":         "100%",
+            "display": "flex", "alignItems": "center",
+            "height": "46px", "padding": "0 16px",
+            "borderBottom": f"1px solid {C['border']}",
+            "flexShrink": "0", "boxSizing": "border-box",
         }),
 
-        # Right: clock + refresh
-        html.Div([
-            html.Span(id="clock-display",
-                      style={"color":C["text_secondary"],"fontFamily":FONT_MONO,
-                             "fontSize":"11px","marginRight":"16px"}),
-            html.Button("⟳ REFRESH", id="refresh-btn",
-                        style={
-                            "background":  "transparent",
-                            "border":      "1px solid var(--accent)",
-                            "color":       "var(--accent)",
-                            "fontFamily":  FONT_MONO,
-                            "fontSize":    "10px",
-                            "padding":     "5px 12px",
-                            "cursor":      "pointer",
-                            "borderRadius":"2px",
-                            "letterSpacing":"0.08em",
-                        }),
-        ], style={"display":"flex","alignItems":"center","flexShrink":"0"}),
+        # 28px spacer — aligns with ticker tape strip height
+        html.Div(style={
+            "height": "28px",
+            "borderBottom": f"1px solid {C['border']}",
+            "flexShrink": "0",
+        }),
+
+        # Nav buttons
+        *[html.Button(
+            [
+                html.Span(icon, style={"fontSize": "13px", "width": "18px",
+                                        "textAlign": "center", "flexShrink": "0"}),
+                html.Span(label),
+            ],
+            id=f"nav-btn-{val}",
+            n_clicks=0,
+            style=NAV_BTN_ACTIVE_STYLE if val == "portfolio" else NAV_BTN_STYLE,
+        ) for icon, label, val in _NAV_TABS],
 
     ], style={
-        "display":       "flex",
-        "alignItems":    "center",
-        "justifyContent":"space-between",
-        "background":    C["bg_panel"],
-        "borderBottom":  f"1px solid {C['border']}",
-        "padding":       "0 20px",
-        "height":        "46px",
-        "position":      "sticky",
-        "top":           "0",
-        "zIndex":        "999",
+        "position":    "fixed",
+        "top":         "0",
+        "left":        "0",
+        "width":       "160px",
+        "height":      "100vh",
+        "background":  C["bg_panel"],
+        "borderRight": f"1px solid {C['border']}",
+        "display":     "flex",
+        "flexDirection":"column",
+        "zIndex":      "1000",
+        "overflowY":   "auto",
     })
 
 
@@ -2583,17 +2605,23 @@ def build_app_layout() -> html.Div:
         dcc.Tabs(id="main-tabs", value="portfolio", children=[],
                  style={"display":"none"}),
 
-        # Navbar
+        # Fixed left sidebar
+        build_sidebar(),
+
+        # Topbar (clock + refresh, offset right of sidebar)
         build_navbar(),
 
-        # Scrolling ticker tape (below navbar)
-        build_ticker_tape(),
+        # Scrolling ticker tape (offset right of sidebar)
+        html.Div(build_ticker_tape(), style={"marginLeft": "160px"}),
 
         # Notifications banner (fixed bottom-right)
         build_notifications_banner(),
 
-        # Page content
-        html.Div(id="page-content", style={"minHeight":"calc(100vh - 74px)"}),
+        # Page content (offset right of sidebar)
+        html.Div(id="page-content", style={
+            "marginLeft": "160px",
+            "minHeight":  "calc(100vh - 74px)",
+        }),
 
     ], style={
         "background":  C["bg"],
