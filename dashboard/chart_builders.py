@@ -135,11 +135,13 @@ def build_main_chart(df: pd.DataFrame, ticker: str,
             hovertemplate="BB Lower: %{y:.2f}<extra></extra>",
         ), row=1, col=1)
 
-    # ── Row 1: Moving Averages ────────────────────────────────────────────────
+    # ── Row 1: Moving Averages + EMAs ─────────────────────────────────────────
     for key, ma_col, color, label, dash in [
         ("ma20",  "MA20",  CHART["ma20"],  "MA 20",  "solid"),
         ("ma50",  "MA50",  CHART["ma50"],  "MA 50",  "solid"),
         ("ma200", "MA200", CHART["ma200"], "MA 200", "dot"),
+        ("ema9",  "EMA9",  CHART["ema9"],  "EMA 9",  "dash"),
+        ("ema21", "EMA21", CHART["ema21"], "EMA 21", "dash"),
     ]:
         if ind.get(key, True) and ma_col in df.columns:
             fig.add_trace(go.Scatter(
@@ -149,10 +151,11 @@ def build_main_chart(df: pd.DataFrame, ticker: str,
                 hovertemplate=f"{label}: %{{y:.2f}}<extra></extra>",
             ), row=1, col=1)
 
-    if "VWAP" in df.columns:
+    # ── Row 1: VWAP ───────────────────────────────────────────────────────────
+    if ind.get("vwap", True) and "VWAP" in df.columns:
         fig.add_trace(go.Scatter(
             x=x, y=df["VWAP"], name="VWAP",
-            line=dict(color="#e879f9", width=1.5, dash="dashdot"),
+            line=dict(color=CHART["vwap"], width=1.5, dash="dashdot"),
             opacity=0.85,
             hovertemplate="VWAP: %{y:.2f}<extra></extra>",
         ), row=1, col=1)
@@ -176,7 +179,7 @@ def build_main_chart(df: pd.DataFrame, ticker: str,
                 showlegend=False, name="Vol MA20",
                 hovertemplate="Vol MA20: %{y:,.0f}<extra></extra>",
             ), row=r, col=1)
-        if "OBV" in df.columns:
+        if ind.get("obv", False) and "OBV" in df.columns:
             fig.add_trace(go.Scatter(
                 x=x, y=df["OBV"], name="OBV",
                 line=dict(color="#22d3ee", width=1.4),

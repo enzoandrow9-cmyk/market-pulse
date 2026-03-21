@@ -155,10 +155,14 @@ def _add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     low   = df["Low"]
     vol   = df["Volume"] if "Volume" in df.columns else None
 
-    # Moving averages
+    # Moving averages (SMA)
     df["MA20"]  = close.rolling(20).mean()
     df["MA50"]  = close.rolling(50).mean()
     df["MA200"] = close.rolling(200).mean()
+
+    # Exponential moving averages
+    df["EMA9"]  = close.ewm(span=9,  adjust=False).mean()
+    df["EMA21"] = close.ewm(span=21, adjust=False).mean()
 
     # Bollinger Bands
     try:

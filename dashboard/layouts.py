@@ -2342,15 +2342,19 @@ def build_settings_tab(settings: dict = None) -> html.Div:
 
         html.Div("Overlays", style={**LABEL_STYLE, "marginBottom": "8px"}),
         html.Div([
-            _ind_btn("ma20",  "MA 20",  CHART["ma20"]),
-            _ind_btn("ma50",  "MA 50",  CHART["ma50"]),
-            _ind_btn("ma200", "MA 200", CHART["ma200"]),
-            _ind_btn("bb",    "Bollinger Bands", "#64748b"),
+            _ind_btn("ma20",  "MA 20",          CHART["ma20"]),
+            _ind_btn("ma50",  "MA 50",          CHART["ma50"]),
+            _ind_btn("ma200", "MA 200",         CHART["ma200"]),
+            _ind_btn("ema9",  "EMA 9",          CHART["ema9"]),
+            _ind_btn("ema21", "EMA 21",         CHART["ema21"]),
+            _ind_btn("bb",    "Bollinger Bands","#64748b"),
+            _ind_btn("vwap",  "VWAP",           CHART["vwap"]),
         ], style={"display": "flex", "gap": "6px", "flexWrap": "wrap", "marginBottom": "16px"}),
 
         html.Div("Sub-panels", style={**LABEL_STYLE, "marginBottom": "8px"}),
         html.Div([
             _ind_btn("volume", "Volume", C["blue"]),
+            _ind_btn("obv",    "OBV",    "#22d3ee"),
             _ind_btn("rsi",    "RSI",    CHART["rsi"]),
             _ind_btn("macd",   "MACD",   CHART["macd_line"]),
             _ind_btn("adx",    "ADX",    CHART["adx"]),
