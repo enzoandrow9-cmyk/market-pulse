@@ -1025,7 +1025,7 @@ def build_market_tab() -> html.Div:
                 html.Div(id="market-bonds"),
             ], width=6),
             dbc.Col([
-                html.Div("FX", style=SECTION_TITLE),
+                html.Div("FOREX", style=SECTION_TITLE),
                 html.Div(id="market-fx"),
             ], width=6),
         ], style={"marginBottom":"14px"}),
