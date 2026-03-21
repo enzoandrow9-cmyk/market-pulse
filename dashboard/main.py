@@ -11,16 +11,20 @@ import json
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import dash
-from dash import Input, Output, State, ALL, MATCH, callback_context
+from dash import Input, Output, State, ALL, MATCH, callback_context, dcc
 import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
 
 from config import C, PORTFOLIO_TICKERS, DEFAULT_SETTINGS
 import data_manager as dm
 import chart_builders as cb
 import layouts as ly
 import intelligence as intel
+import quantlab_ui as ql_ui
+from quantlab.runner import QuantLabRunner
 
 # ─────────────────────────────────────────────────────────────────────────────
 # App init
@@ -39,6 +43,7 @@ app = dash.Dash(
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 server = app.server  # for deployment if needed
+quantlab_runner = QuantLabRunner(output_root=str(Path(__file__).resolve().parent / "quantlab_runs"))
 
 # Custom CSS injected globally
 app.index_string = """
@@ -122,6 +127,49 @@ app.index_string = """
 """
 
 app.layout = ly.build_app_layout()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Navbar tab buttons → switch active tab
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("main-tabs", "value", allow_duplicate=True),
+    Input("nav-btn-portfolio",    "n_clicks"),
+    Input("nav-btn-deepdive",     "n_clicks"),
+    Input("nav-btn-market",       "n_clicks"),
+    Input("nav-btn-quantlab",     "n_clicks"),
+    Input("nav-btn-intelligence", "n_clicks"),
+    Input("nav-btn-calendar",     "n_clicks"),
+    Input("nav-btn-news",         "n_clicks"),
+    Input("nav-btn-settings",     "n_clicks"),
+    prevent_initial_call=True,
+)
+def nav_tab_clicked(*_):
+    ctx = callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    btn_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    return btn_id.replace("nav-btn-", "")
+
+
+@app.callback(
+    Output("nav-btn-portfolio",    "style"),
+    Output("nav-btn-deepdive",     "style"),
+    Output("nav-btn-market",       "style"),
+    Output("nav-btn-quantlab",     "style"),
+    Output("nav-btn-intelligence", "style"),
+    Output("nav-btn-calendar",     "style"),
+    Output("nav-btn-news",         "style"),
+    Output("nav-btn-settings",     "style"),
+    Input("main-tabs", "value"),
+)
+def update_nav_styles(active_tab):
+    vals = ["portfolio", "deepdive", "market", "quantlab", "intelligence", "calendar", "news", "settings"]
+    return [
+        ly.NAV_BTN_ACTIVE_STYLE if v == active_tab else ly.NAV_BTN_STYLE
+        for v in vals
+    ]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Background Deep Dive cache pre-warmer
@@ -301,7 +349,7 @@ def fetch_portfolio_data(n_intervals, n_clicks, settings, last_ts):
 
 @app.callback(
     Output("selected-ticker", "data"),
-    Output("main-tabs",       "value"),
+    Output("main-tabs",       "value", allow_duplicate=True),
     Input({"type": "ticker-card", "index": ALL}, "n_clicks"),
     State("main-tabs", "value"),
     prevent_initial_call=True,
@@ -364,6 +412,8 @@ def render_page(tab, settings, selected_ticker):
         return ly.build_deepdive_tab(initial_ticker=ticker, tickers=active_tickers)
     elif tab == "market":
         return ly.build_market_tab()
+    elif tab == "quantlab":
+        return ql_ui.build_quantlab_tab()
     elif tab == "intelligence":
         return ly.build_intelligence_tab()
     elif tab == "calendar":
@@ -373,6 +423,206 @@ def render_page(tab, settings, selected_ticker):
     elif tab == "settings":
         return ly.build_settings_tab(settings or DEFAULT_SETTINGS)
     return ly.build_portfolio_tab()
+
+
+@app.callback(
+    Output("quantlab-strategies-field", "style"),
+    Output("quantlab-simulation-field", "style"),
+    Output("quantlab-capital-field", "style"),
+    Output("quantlab-interval-field", "style"),
+    Output("quantlab-optimizer-field", "style"),
+    Input("quantlab-action", "value"),
+)
+def update_quantlab_builder_visibility(action):
+    visible = dict(ql_ui.FIELD_STYLE)
+    hidden = dict(ql_ui.HIDDEN_FIELD_STYLE)
+    if action == "backtest":
+        return visible, visible, visible, visible, hidden
+    if action == "research":
+        return hidden, hidden, hidden, visible, hidden
+    if action == "regime":
+        return hidden, hidden, hidden, visible, hidden
+    if action == "optimize":
+        return visible, visible, visible, visible, visible
+    return visible, visible, visible, visible, hidden
+
+
+@app.callback(
+    Output("quantlab-command", "value"),
+    Output("quantlab-builder-hint", "children"),
+    Output("quantlab-workflow-display", "children"),
+    Input("quantlab-action", "value"),
+    Input("quantlab-symbols", "value"),
+    Input("quantlab-strategies", "value"),
+    Input("quantlab-start-date", "value"),
+    Input("quantlab-end-date", "value"),
+    Input("quantlab-simulation-mode", "value"),
+    Input("quantlab-capital", "value"),
+    Input("quantlab-interval", "value"),
+    Input("quantlab-optimizer-method", "value"),
+)
+def sync_quantlab_command_preview(
+    action,
+    symbols,
+    strategies,
+    start_date,
+    end_date,
+    simulation_mode,
+    capital,
+    interval,
+    optimizer_method,
+):
+    command = ql_ui.build_command_from_form(
+        action=action,
+        symbols=symbols,
+        strategies=strategies,
+        start_date=start_date,
+        end_date=end_date,
+        simulation_mode=simulation_mode,
+        capital=capital,
+        interval=interval,
+        optimization_method=optimizer_method,
+    )
+    return command, ql_ui.builder_hint(action), ql_ui.render_workflow_display(action)
+
+
+@app.callback(
+    Output("quantlab-status", "children"),
+    Output("quantlab-summary", "children"),
+    Output("quantlab-metrics", "children"),
+    Output("quantlab-risk-panel", "children"),
+    Output("quantlab-experiment", "children"),
+    Output("quantlab-equity-graph", "figure"),
+    Output("quantlab-drawdown-graph", "figure"),
+    Output("quantlab-rolling-graph", "figure"),
+    Output("quantlab-factor-graph", "figure"),
+    Output("quantlab-trades-table", "children"),
+    Output("quantlab-signals-feed", "children"),
+    Input("quantlab-run-btn", "n_clicks"),
+    State("quantlab-command", "value"),
+    prevent_initial_call=True,
+)
+def run_quantlab_command(n_clicks, command):
+    del n_clicks
+    blank_equity = ql_ui.blank_figure("Equity Curve")
+    blank_drawdown = ql_ui.blank_figure("Drawdown")
+    blank_rolling = ql_ui.blank_figure("Rolling Sharpe")
+    blank_factor = ql_ui.blank_figure("Factor Ranking")
+
+    if not command or not str(command).strip():
+        msg = "Quant Lab command is empty."
+        placeholder = dash.html.Div(msg, style={"color": C["text_dim"], "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "11px"})
+        return msg, placeholder, placeholder, placeholder, placeholder, blank_equity, blank_drawdown, blank_rolling, blank_factor, placeholder, placeholder
+
+    try:
+        result = quantlab_runner.run_command(command)
+    except Exception as exc:
+        err = f"Quant Lab error: {exc}"
+        body = dash.html.Pre(
+            traceback.format_exc(),
+            style={
+                "background": C["bg_chart"],
+                "border": f"1px solid {C['border']}",
+                "color": C["red"],
+                "fontFamily": "'IBM Plex Mono', monospace",
+                "fontSize": "10px",
+                "padding": "10px",
+                "whiteSpace": "pre-wrap",
+            },
+        )
+        return err, body, body, body, body, blank_equity, blank_drawdown, blank_rolling, blank_factor, body, body
+
+    mode = result.get("mode", "backtest")
+    summary = ql_ui.render_summary(result)
+
+    if mode == "backtest":
+        metrics = dash.html.Div(
+            [
+                dash.html.Div("PERFORMANCE", style={"color": "var(--accent)", "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "10px", "marginBottom": "6px"}),
+                ql_ui.render_key_value_block(result.get("performance_metrics", {})),
+                dash.html.Div("TRADES", style={"color": "var(--accent)", "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "10px", "marginTop": "12px", "marginBottom": "6px"}),
+                ql_ui.render_key_value_block(result.get("trade_statistics", {})),
+            ]
+        )
+        risk_panel = dash.html.Div(
+            [
+                dash.html.Div("RISK", style={"color": "var(--accent)", "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "10px", "marginBottom": "6px"}),
+                ql_ui.render_key_value_block(result.get("risk_metrics", {})),
+                dash.html.Div("CAPACITY", style={"color": "var(--accent)", "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "10px", "marginTop": "12px", "marginBottom": "6px"}),
+                ql_ui.render_key_value_block(result.get("capacity_analysis", {})),
+                dash.html.Div("STRESS", style={"color": "var(--accent)", "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "10px", "marginTop": "12px", "marginBottom": "6px"}),
+                ql_ui.render_key_value_block(result.get("stress_tests", {})),
+            ]
+        )
+        experiment = ql_ui.render_experiment(result)
+        tearsheet = result.get("tearsheet", {})
+        status = (
+            f"Completed backtest for {', '.join(result.get('config', {}).get('symbols', []))} "
+            f"with {', '.join(result.get('config', {}).get('strategies', []))}. "
+            f"Experiment {result.get('experiment', {}).get('experiment_id', 'n/a')} recorded."
+        )
+        return (
+            status,
+            summary,
+            metrics,
+            risk_panel,
+            experiment,
+            tearsheet.get("equity_curve_figure", blank_equity),
+            tearsheet.get("drawdown_figure", blank_drawdown),
+            tearsheet.get("rolling_sharpe_figure", blank_rolling),
+            tearsheet.get("factor_figure", blank_factor),
+            ql_ui.render_trade_blotter(result.get("trades", [])),
+            ql_ui.render_signal_feed(result.get("signals", []), result.get("risk_events", [])),
+        )
+
+    if mode == "research":
+        metrics = ql_ui.render_key_value_block(result.get("regimes", {}))
+        status = "Research factor evaluation completed."
+        return (
+            status,
+            summary,
+            metrics,
+            dash.html.Div("Cross-sectional factor ranking generated.", style={"color": C["text_primary"], "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "11px"}),
+            dash.html.Div("No experiment stored for ad hoc research mode.", style={"color": C["text_dim"], "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "11px"}),
+            blank_equity,
+            blank_drawdown,
+            blank_rolling,
+            ql_ui.render_factor_figure(result.get("factor_ranking")),
+            ql_ui.render_trade_blotter([]),
+            ql_ui.render_signal_feed([], []),
+        )
+
+    if mode == "regime":
+        regime_block = ql_ui.render_key_value_block(result.get("regime", {}))
+        return (
+            "Regime analysis completed.",
+            summary,
+            regime_block,
+            regime_block,
+            dash.html.Div("No experiment stored for regime mode.", style={"color": C["text_dim"], "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "11px"}),
+            blank_equity,
+            blank_drawdown,
+            blank_rolling,
+            blank_factor,
+            ql_ui.render_trade_blotter([]),
+            ql_ui.render_signal_feed([], []),
+        )
+
+    optimization = result.get("optimization", {})
+    metrics = ql_ui.render_key_value_block({"best_score": optimization.get("best_score", 0.0), **optimization.get("best_params", {})})
+    return (
+        f"Optimization completed via {result.get('method', 'grid')} search.",
+        summary,
+        metrics,
+        dash.html.Div(f"{len(optimization.get('results', []))} parameter evaluations completed.", style={"color": C["text_primary"], "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "11px"}),
+        dash.html.Div("Optimization runs are returned interactively; storeable experiment support can be layered in next.", style={"color": C["text_dim"], "fontFamily": "'IBM Plex Mono', monospace", "fontSize": "11px"}),
+        blank_equity,
+        blank_drawdown,
+        blank_rolling,
+        blank_factor,
+        ql_ui.render_trade_blotter([]),
+        ql_ui.render_signal_feed([], []),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -623,14 +873,17 @@ _PERIOD_MAP = {
     Input("deepdive-ticker",   "value"),
     Input("deepdive-period",   "data"),
     Input("store-refresh-ts",  "data"),
+    State("user-settings",     "data"),
     prevent_initial_call=False,
 )
-def update_deepdive(ticker, period, ts):
+def update_deepdive(ticker, period, ts, settings):
     if not ticker:
         return cb._empty_chart("Select a ticker"), dash.html.Div()
 
     try:
         yf_period, yf_interval = _PERIOD_MAP.get(period or "6M", ("6mo", "1d"))
+
+        indicators = (settings or {}).get("indicators", {})
 
         # Fetch chart data + the three panel data sources in parallel
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -648,7 +901,7 @@ def update_deepdive(ticker, period, ts):
         data    = dm.get_ticker_data(ticker)
         signals = data.get("signals", [])
 
-        chart   = cb.build_main_chart(chart_df, ticker)
+        chart   = cb.build_main_chart(chart_df, ticker, indicators=indicators)
         radar   = cb.build_signal_radar(signals)
         outlook = ly.build_outlook_panel(data,
                                          radar_fig=radar,
@@ -667,13 +920,14 @@ def update_deepdive(ticker, period, ts):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.callback(
-    Output("market-futures",     "children"),
-    Output("market-indices",     "children"),
-    Output("market-crypto",      "children"),
-    Output("market-bonds",       "children"),
-    Output("market-commodities", "children"),
-    Output("market-fx",          "children"),
-    Input("store-refresh-ts",    "data"),
+    Output("market-futures",       "children"),
+    Output("market-indices",       "children"),
+    Output("market-crypto",        "children"),
+    Output("market-bonds",         "children"),
+    Output("market-commodities",   "children"),
+    Output("market-fx",            "children"),
+    Output("sector-heatmap-graph", "figure"),
+    Input("store-refresh-ts",      "data"),
     prevent_initial_call=False,
 )
 def update_market_monitor(ts):
@@ -686,7 +940,7 @@ def update_market_monitor(ts):
                       style={"color": C["red"], "fontFamily": "'IBM Plex Mono'",
                              "fontSize": "11px"})
 
-    # Standard sections
+    # Standard market table sections
     sections = ["indices", "crypto", "bonds", "commodities", "fx"]
     results  = [futures_out]
     for section in sections:
@@ -697,7 +951,61 @@ def update_market_monitor(ts):
             results.append(dash.html.Div(f"Error: {e}",
                            style={"color": C["red"], "fontFamily": "'IBM Plex Mono'",
                                   "fontSize": "11px"}))
+
+    # Sector heatmap figure — output directly to dcc.Graph.figure
+    try:
+        sector_data = dm.get_sector_data()
+        sector_fig  = cb.build_sector_heatmap(sector_data)
+    except Exception:
+        sector_fig  = go.Figure()
+
+    results.append(sector_fig)
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sector heatmap tile click → drill-down panel
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SECTOR_NAME_MAP = {
+    "XLK":  "Technology",          "XLF":  "Financials",
+    "XLV":  "Health Care",         "XLY":  "Cons. Discretionary",
+    "XLP":  "Cons. Staples",       "XLI":  "Industrials",
+    "XLE":  "Energy",              "XLC":  "Comm. Services",
+    "XLRE": "Real Estate",         "XLB":  "Materials",
+    "XLU":  "Utilities",
+}
+
+@app.callback(
+    Output("sector-drill-down", "children"),
+    Output("sector-drill-down", "style"),
+    Input("sector-heatmap-graph", "clickData"),
+    prevent_initial_call=True,
+)
+def show_sector_drilldown(click_data):
+    if not click_data:
+        return [], {"display": "none"}
+
+    try:
+        # customdata holds the clean ETF symbol (e.g. "XLK")
+        # label holds the formatted HTML tile text — don't use it for lookup
+        etf_symbol = click_data["points"][0]["customdata"]
+    except (KeyError, IndexError):
+        return [], {"display": "none"}
+
+    if not etf_symbol or etf_symbol not in _SECTOR_NAME_MAP:
+        return [], {"display": "none"}
+
+    sector_name = _SECTOR_NAME_MAP[etf_symbol]
+    holdings    = dm.get_sector_holdings_data(etf_symbol)
+
+    if not holdings:
+        return [dash.html.Div("No holdings data available.",
+                style={"color": C["text_dim"], "fontFamily": "'IBM Plex Mono'",
+                       "fontSize": "11px", "padding": "12px 0"})], {"display": "block"}
+
+    panel = ly.build_sector_drill_down(etf_symbol, sector_name, holdings)
+    return panel, {"display": "block"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1178,6 +1486,67 @@ def delete_portfolio(n_clicks, settings):
 # ─────────────────────────────────────────────────────────────────────────────
 # Alerts — add / remove alert definitions
 # ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("user-settings",              "data",     allow_duplicate=True),
+    Output("settings-indicators-status", "children", allow_duplicate=True),
+    Output({"type": "ind-toggle-btn", "index": ALL}, "style"),
+    Input({"type": "ind-toggle-btn", "index": ALL}, "n_clicks"),
+    State("user-settings", "data"),
+    prevent_initial_call=True,
+)
+def toggle_indicator(n_clicks_list, settings):
+    ctx = callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        return dash.no_update, dash.no_update, dash.no_update
+
+    try:
+        triggered_id = ctx.triggered[0]["prop_id"]
+        key = json.loads(triggered_id.split(".n_clicks")[0])["index"]
+    except Exception:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    import copy
+    settings = copy.deepcopy(settings or DEFAULT_SETTINGS)
+    ind = settings.setdefault("indicators", dict(DEFAULT_SETTINGS["indicators"]))
+    ind[key] = not ind.get(key, True)
+    settings["indicators"] = ind
+
+    # Rebuild button styles
+    from config import CHART as _CHART
+    _color_map = {
+        "ma20":   _CHART["ma20"],
+        "ma50":   _CHART["ma50"],
+        "ma200":  _CHART["ma200"],
+        "bb":     "#64748b",
+        "volume": C["blue"],
+        "rsi":    _CHART["rsi"],
+        "macd":   _CHART["macd_line"],
+        "adx":    _CHART["adx"],
+    }
+    _keys = ["ma20", "ma50", "ma200", "bb", "volume", "rsi", "macd", "adx"]
+    styles = []
+    for k in _keys:
+        color  = _color_map.get(k, C["amber"])
+        active = ind.get(k, True)
+        styles.append({
+            "background":    f"color-mix(in srgb, {color} 20%, transparent)" if active else "transparent",
+            "border":        f"1px solid {color}" if active else f"1px solid {C['border']}",
+            "borderRadius":  "3px",
+            "color":         color if active else C["text_dim"],
+            "fontFamily":    "'IBM Plex Mono', monospace",
+            "fontSize":      "10px",
+            "fontWeight":    "700" if active else "400",
+            "padding":       "5px 12px",
+            "cursor":        "pointer",
+            "letterSpacing": "0.05em",
+            "whiteSpace":    "nowrap",
+        })
+
+    label = key.upper().replace("MA", "MA ").replace("BB", "Bollinger Bands")
+    status = f"{'ON' if ind[key] else 'OFF'}  —  {label}"
+    return settings, status, styles
+
 
 @app.callback(
     Output("user-settings",   "data",     allow_duplicate=True),

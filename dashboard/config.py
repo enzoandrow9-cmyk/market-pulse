@@ -84,6 +84,21 @@ FUTURES = [
     ("GC=F",  "Gold Futures",     "Futures"),
 ]
 
+# ── S&P 500 Sector ETFs ───────────────────────────────────────────────────────
+SECTORS = [
+    ("XLK",  "Technology",       "Sector"),
+    ("XLF",  "Financials",       "Sector"),
+    ("XLV",  "Health Care",      "Sector"),
+    ("XLY",  "Cons. Discret.",   "Sector"),
+    ("XLP",  "Cons. Staples",    "Sector"),
+    ("XLI",  "Industrials",      "Sector"),
+    ("XLE",  "Energy",           "Sector"),
+    ("XLC",  "Comm. Services",   "Sector"),
+    ("XLRE", "Real Estate",      "Sector"),
+    ("XLB",  "Materials",        "Sector"),
+    ("XLU",  "Utilities",        "Sector"),
+]
+
 # ── Color Palette  (Bloomberg dark terminal aesthetic) ───────────────────────
 C = {
     # Backgrounds
@@ -169,6 +184,17 @@ DEFAULT_SETTINGS = {
     # Alert definitions — each dict: {id, ticker, type, threshold, active}
     # type: "above" | "below" | "pct_change"
     "alerts": [],
+    # Chart indicator visibility
+    "indicators": {
+        "ma20":   True,
+        "ma50":   True,
+        "ma200":  True,
+        "bb":     True,
+        "volume": True,
+        "rsi":    True,
+        "macd":   True,
+        "adx":    True,
+    },
 }
 
 # ── Data settings ─────────────────────────────────────────────────────────────

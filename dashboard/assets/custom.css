@@ -1,0 +1,4 @@
+/* Remove default Dash tab styling artifacts */
+.tab-container {
+    display: none !important;
+}

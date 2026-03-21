@@ -67,33 +67,47 @@ def _rangeslider_off() -> dict:
 # Candlestick + indicators chart (main ticker chart)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
+def build_main_chart(df: pd.DataFrame, ticker: str,
+                     indicators: dict = None) -> go.Figure:
     """
-    5-row subplot chart:
-      Row 1 (large): Candlestick + MA20/MA50 + Bollinger Bands + VWAP
-      Row 2 (small): Volume bars
-      Row 3 (small): RSI  (with overbought/oversold zones)
-      Row 4 (small): MACD (histogram + lines)
-      Row 5 (small): ADX  (+DI / -DI)
-    All timeframes show the full indicator set — get_chart_data ensures
-    enough warmup data is fetched even for short display windows.
+    Dynamic subplot chart driven by the `indicators` settings dict.
+    Row 1 (always): Candlestick + optional MA20/MA50/MA200 + optional Bollinger Bands
+    Optional sub-panels: Volume, RSI, MACD, ADX — only rendered when enabled.
     """
     if df is None or len(df) < 5:
         return _empty_chart("No data available")
 
-    subplot_titles = ["", "VOLUME", "RSI (14)", "MACD (12,26,9)", "ADX (14)"]
+    # Default: all on
+    from config import DEFAULT_SETTINGS
+    _defaults = DEFAULT_SETTINGS.get("indicators", {})
+    ind = {**_defaults, **(indicators or {})}
+
+    # ── Build dynamic panel list ───────────────────────────────────────────────
+    # Each entry: (key, subplot_title, height_weight, yaxis_cfg_fn_or_None)
+    _panels = [("main", "", 0.45, None)]
+    if ind.get("volume", True): _panels.append(("volume", "VOLUME",         0.12, "vol"))
+    if ind.get("rsi",    True): _panels.append(("rsi",    "RSI (14)",        0.15, "rsi"))
+    if ind.get("macd",   True): _panels.append(("macd",   "MACD (12,26,9)", 0.15, "macd"))
+    if ind.get("adx",    True): _panels.append(("adx",    "ADX (14)",        0.13, "adx"))
+
+    n_rows      = len(_panels)
+    row_map     = {p[0]: i + 1 for i, p in enumerate(_panels)}
+    titles      = [p[1] for p in _panels]
+    raw_heights = [p[2] for p in _panels]
+    total_h     = sum(raw_heights)
+    row_heights = [h / total_h for h in raw_heights]
 
     fig = make_subplots(
-        rows=5, cols=1,
+        rows=n_rows, cols=1,
         shared_xaxes=True,
-        row_heights=[0.45, 0.12, 0.15, 0.15, 0.13],
+        row_heights=row_heights,
         vertical_spacing=0.022,
-        subplot_titles=subplot_titles,
+        subplot_titles=titles,
     )
 
     x = df.index
 
-    # ── Row 1: Candlestick + MAs + BBands + VWAP ─────────────────────────────
+    # ── Row 1: Candlestick ────────────────────────────────────────────────────
     fig.add_trace(go.Candlestick(
         x=x,
         open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
@@ -105,7 +119,8 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
         hoverlabel=dict(bgcolor=C["bg_panel"]),
     ), row=1, col=1)
 
-    if "BB_Upper" in df.columns and "BB_Lower" in df.columns:
+    # ── Row 1: Bollinger Bands ────────────────────────────────────────────────
+    if ind.get("bb", True) and "BB_Upper" in df.columns and "BB_Lower" in df.columns:
         fig.add_trace(go.Scatter(
             x=x, y=df["BB_Upper"], name="BB Upper",
             line=dict(color="rgba(100,116,139,0.5)", width=1.2, dash="dash"),
@@ -120,12 +135,13 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
             hovertemplate="BB Lower: %{y:.2f}<extra></extra>",
         ), row=1, col=1)
 
-    for ma_col, color, label, dash in [
-        ("MA20",  CHART["ma20"],  "MA 20",  "solid"),
-        ("MA50",  CHART["ma50"],  "MA 50",  "solid"),
-        ("MA200", CHART["ma200"], "MA 200", "dot"),
+    # ── Row 1: Moving Averages ────────────────────────────────────────────────
+    for key, ma_col, color, label, dash in [
+        ("ma20",  "MA20",  CHART["ma20"],  "MA 20",  "solid"),
+        ("ma50",  "MA50",  CHART["ma50"],  "MA 50",  "solid"),
+        ("ma200", "MA200", CHART["ma200"], "MA 200", "dot"),
     ]:
-        if ma_col in df.columns:
+        if ind.get(key, True) and ma_col in df.columns:
             fig.add_trace(go.Scatter(
                 x=x, y=df[ma_col], name=label,
                 line=dict(color=color, width=1.3, dash=dash),
@@ -141,8 +157,9 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
             hovertemplate="VWAP: %{y:.2f}<extra></extra>",
         ), row=1, col=1)
 
-    # ── Row 2: Volume ─────────────────────────────────────────────────────────
-    if "Volume" in df.columns:
+    # ── Volume panel ──────────────────────────────────────────────────────────
+    if "volume" in row_map and "Volume" in df.columns:
+        r = row_map["volume"]
         vol_colors = [
             CHART["volume_up"] if float(c) >= float(o) else CHART["volume_down"]
             for c, o in zip(df["Close"], df["Open"])
@@ -151,78 +168,78 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
             x=x, y=df["Volume"], name="Volume",
             marker_color=vol_colors, showlegend=False,
             hovertemplate="Vol: %{y:,.0f}<extra></extra>",
-        ), row=2, col=1)
+        ), row=r, col=1)
         if "Vol_MA20" in df.columns:
             fig.add_trace(go.Scatter(
                 x=x, y=df["Vol_MA20"],
                 line=dict(color=CHART["ma20"], width=1.2),
                 showlegend=False, name="Vol MA20",
                 hovertemplate="Vol MA20: %{y:,.0f}<extra></extra>",
-            ), row=2, col=1)
+            ), row=r, col=1)
+        if "OBV" in df.columns:
+            fig.add_trace(go.Scatter(
+                x=x, y=df["OBV"], name="OBV",
+                line=dict(color="#22d3ee", width=1.4),
+                showlegend=True,
+                hovertemplate="OBV: %{y:,.0f}<extra></extra>",
+                opacity=0.9, yaxis="y6",
+            ), row=r, col=1)
 
-    if "OBV" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=x, y=df["OBV"], name="OBV",
-            line=dict(color="#22d3ee", width=1.4),
-            showlegend=True,
-            hovertemplate="OBV: %{y:,.0f}<extra></extra>",
-            opacity=0.9,
-            yaxis="y6",
-        ), row=2, col=1)
-
-    # ── Row 3: RSI ────────────────────────────────────────────────────────────
-    if "RSI" in df.columns:
+    # ── RSI panel ─────────────────────────────────────────────────────────────
+    if "rsi" in row_map and "RSI" in df.columns:
+        r = row_map["rsi"]
         fig.add_hrect(y0=70, y1=100, fillcolor="rgba(239,68,68,0.07)",
-                      line_width=0, row=3, col=1)
+                      line_width=0, row=r, col=1)
         fig.add_hrect(y0=0,  y1=30,  fillcolor="rgba(34,197,94,0.07)",
-                      line_width=0, row=3, col=1)
-        for lvl, col in [(70, CHART["candle_down"]), (30, CHART["candle_up"])]:
-            fig.add_hline(y=lvl, line_dash="dot", line_color=col,
-                          line_width=1, opacity=0.6, row=3, col=1)
+                      line_width=0, row=r, col=1)
+        for lvl, lc in [(70, CHART["candle_down"]), (30, CHART["candle_up"])]:
+            fig.add_hline(y=lvl, line_dash="dot", line_color=lc,
+                          line_width=1, opacity=0.6, row=r, col=1)
         fig.add_trace(go.Scatter(
             x=x, y=df["RSI"], name="RSI",
             line=dict(color=CHART["rsi"], width=1.8),
             showlegend=False,
             hovertemplate="RSI: %{y:.1f}<extra></extra>",
-        ), row=3, col=1)
+        ), row=r, col=1)
 
-    # ── Row 4: MACD ───────────────────────────────────────────────────────────
-    if "MACD" in df.columns:
+    # ── MACD panel ────────────────────────────────────────────────────────────
+    if "macd" in row_map and "MACD" in df.columns:
+        r = row_map["macd"]
         if "MACD_Hist" in df.columns:
             hist = df["MACD_Hist"].fillna(0)
             hist_colors = [
-                CHART["candle_up"] if v >= 0 else CHART["candle_down"]
-                for v in hist
+                CHART["candle_up"] if v >= 0 else CHART["candle_down"] for v in hist
             ]
             fig.add_trace(go.Bar(
                 x=x, y=hist, marker_color=hist_colors,
                 opacity=0.55, showlegend=False, name="Hist",
                 hovertemplate="Hist: %{y:.3f}<extra></extra>",
-            ), row=4, col=1)
+            ), row=r, col=1)
         fig.add_trace(go.Scatter(
             x=x, y=df["MACD"], name="MACD",
             line=dict(color=CHART["macd_line"], width=1.6),
             showlegend=False,
             hovertemplate="MACD: %{y:.3f}<extra></extra>",
-        ), row=4, col=1)
+        ), row=r, col=1)
         if "MACD_Signal" in df.columns:
             fig.add_trace(go.Scatter(
                 x=x, y=df["MACD_Signal"], name="Signal",
                 line=dict(color=CHART["macd_signal"], width=1.3, dash="dot"),
                 showlegend=False,
                 hovertemplate="Signal: %{y:.3f}<extra></extra>",
-            ), row=4, col=1)
+            ), row=r, col=1)
 
-    # ── Row 5: ADX ────────────────────────────────────────────────────────────
-    if "ADX" in df.columns:
+    # ── ADX panel ─────────────────────────────────────────────────────────────
+    if "adx" in row_map and "ADX" in df.columns:
+        r = row_map["adx"]
         fig.add_hline(y=25, line_dash="dot", line_color=C["text_dim"],
-                      line_width=1, opacity=0.5, row=5, col=1)
+                      line_width=1, opacity=0.5, row=r, col=1)
         fig.add_trace(go.Scatter(
             x=x, y=df["ADX"], name="ADX",
             line=dict(color=CHART["adx"], width=1.8),
             showlegend=False,
             hovertemplate="ADX: %{y:.1f}<extra></extra>",
-        ), row=5, col=1)
+        ), row=r, col=1)
         for di_col, di_color, di_name in [
             ("ADX_pos", CHART["adx_pos"], "+DI"),
             ("ADX_neg", CHART["adx_neg"], "-DI"),
@@ -233,25 +250,25 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
                     line=dict(color=di_color, width=1, dash="dot"),
                     showlegend=False,
                     hovertemplate=f"{di_name}: %{{y:.1f}}<extra></extra>",
-                ), row=5, col=1)
+                ), row=r, col=1)
 
     # ── Global layout ─────────────────────────────────────────────────────────
     fig.update_layout(**_base_layout(
-        margin   = dict(l=60, r=14, t=36, b=10),
-        legend   = dict(
+        margin        = dict(l=60, r=14, t=36, b=10),
+        legend        = dict(
             orientation = "h", x=0, y=1.01,
             bgcolor     = TRANSPARENT,
             font        = dict(size=10, color=C["text_secondary"]),
             itemclick   = "toggleothers",
         ),
-        hovermode    = "x unified",
+        hovermode     = "x unified",
         hoverdistance = 50,
     ))
 
-    for i in range(1, 6):
+    for i in range(1, n_rows + 1):
         fig.update_xaxes(
             rangeslider_visible = False,
-            showticklabels      = (i == 5),
+            showticklabels      = (i == n_rows),
             tickfont            = dict(color=C["text_secondary"], size=9),
             gridcolor           = CHART["grid"],
             showgrid            = True,
@@ -262,20 +279,23 @@ def build_main_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     _ya = dict(gridcolor=CHART["grid"], tickfont=dict(color=C["text_secondary"], size=9),
                linecolor=C["border"], zerolinecolor=CHART["zero_line"])
     fig.update_yaxes(**_ya, row=1, col=1)
-    fig.update_yaxes(**_ya, tickformat=".2s", showgrid=False, row=2, col=1)
-    fig.update_yaxes(**_ya, range=[0, 100], dtick=20, row=3, col=1)
-    fig.update_yaxes(**_ya, zeroline=True, zerolinewidth=1, row=4, col=1)
-    fig.update_yaxes(**_ya, range=[0, 55], dtick=25, row=5, col=1)
+    if "volume" in row_map:
+        fig.update_yaxes(**_ya, tickformat=".2s", showgrid=False, row=row_map["volume"], col=1)
+    if "rsi" in row_map:
+        fig.update_yaxes(**_ya, range=[0, 100], dtick=20, row=row_map["rsi"], col=1)
+    if "macd" in row_map:
+        fig.update_yaxes(**_ya, zeroline=True, zerolinewidth=1, row=row_map["macd"], col=1)
+    if "adx" in row_map:
+        fig.update_yaxes(**_ya, range=[0, 55], dtick=25, row=row_map["adx"], col=1)
 
-    fig.update_layout(**{
-        "yaxis6": dict(
-            overlaying     = "y2",
-            side           = "right",
-            showgrid       = False,
-            showticklabels = False,
-            tickfont       = dict(color="#22d3ee", size=8),
-        )
-    })
+    if "volume" in row_map:
+        fig.update_layout(**{
+            "yaxis6": dict(
+                overlaying="y2", side="right",
+                showgrid=False, showticklabels=False,
+                tickfont=dict(color="#22d3ee", size=8),
+            )
+        })
 
     for ann in fig.layout.annotations:
         ann.update(font=dict(color=C["text_dim"], size=9),
@@ -545,3 +565,74 @@ def _hex_to_rgb(hex_color: str) -> str:
         h = "".join(c * 2 for c in h)
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f"{r},{g},{b}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sector Heatmap — S&P 500 sector ETF performance treemap
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_sector_heatmap(sector_data: list) -> go.Figure:
+    """
+    Treemap where each tile is an S&P 500 sector ETF.
+    Tiles are equal-sized; colour encodes today's % change (red → green).
+    """
+    if not sector_data:
+        return _empty_chart("No sector data available")
+
+    names   = [d["name"]    for d in sector_data]
+    symbols = [d["symbol"]  for d in sector_data]
+    pcts    = [d["chg_pct"] for d in sector_data]
+
+    # Text shown inside each tile: sector name, ticker, % change
+    tile_text = [
+        f"<b>{name}</b><br>{sym}<br>{'+'if p>=0 else ''}{p:.2f}%"
+        for name, sym, p in zip(names, symbols, pcts)
+    ]
+
+    # Symmetric colour range — scale to worst mover so extremes are vivid
+    max_abs = max((abs(p) for p in pcts), default=2.0)
+    climit  = max(max_abs, 0.5)
+
+    # Red → dark neutral → green  (Bloomberg palette)
+    colorscale = [
+        [0.00, "#7f1d1d"],   # deep red
+        [0.35, C["red"]],    # red
+        [0.45, C["bg_panel"]],
+        [0.55, C["bg_panel"]],
+        [0.65, C["green_dim"]],
+        [1.00, "#14532d"],   # deep green
+    ]
+
+    fig = go.Figure(go.Treemap(
+        labels        = tile_text,                # formatted HTML — displayed in tile
+        customdata    = symbols,                  # clean ETF symbol — read in clickData
+        parents       = [""] * len(sector_data),
+        values        = [1] * len(sector_data),   # equal tile size
+        marker        = dict(
+            colors    = pcts,
+            colorscale= colorscale,
+            cmin      = -climit,
+            cmax      =  climit,
+            showscale = False,
+            line      = dict(width=2, color=C["bg"]),
+        ),
+        textfont      = dict(
+            family    = "'IBM Plex Mono', 'Courier New', monospace",
+            size      = 12,
+            color     = C["text_white"],
+        ),
+        hovertemplate = "<b>%{customdata}</b><extra></extra>",
+        pathbar       = dict(visible=False),
+        tiling        = dict(pad=2),
+    ))
+
+    fig.update_layout(
+        margin         = dict(t=0, l=0, r=0, b=0),
+        paper_bgcolor  = C["bg_panel"],
+        plot_bgcolor   = C["bg_panel"],
+        font           = dict(
+            family     = "'IBM Plex Mono', 'Courier New', monospace",
+            color      = C["text_primary"],
+        ),
+    )
+    return fig

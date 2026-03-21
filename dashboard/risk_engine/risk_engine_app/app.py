@@ -1,0 +1,22 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from core import calculate_trade
+
+app = FastAPI()
+
+class TradeInput(BaseModel):
+    account_size: float
+    risk_percent: float
+    entry: float
+    stop: float
+    target: float
+
+@app.post("/calculate")
+def calculate(trade: TradeInput):
+    return calculate_trade(
+        trade.account_size,
+        trade.risk_percent,
+        trade.entry,
+        trade.stop,
+        trade.target
+    )

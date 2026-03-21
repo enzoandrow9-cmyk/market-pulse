@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Risk Engine</title>
+</head>
+<body>
+
+<h2>Risk Engine</h2>
+
+<input id="account" placeholder="Account Size"><br><br>
+<input id="risk" placeholder="Risk %"><br><br>
+<input id="entry" placeholder="Entry Price"><br><br>
+<input id="stop" placeholder="Stop Loss"><br><br>
+<input id="target" placeholder="Target Price"><br><br>
+
+<button onclick="calculate()">Calculate</button>
+
+<h3>Result:</h3>
+<pre id="output"></pre>
+
+<script>
+async function calculate() {
+    const data = {
+        account_size: parseFloat(document.getElementById("account").value),
+        risk_percent: parseFloat(document.getElementById("risk").value),
+        entry: parseFloat(document.getElementById("entry").value),
+        stop: parseFloat(document.getElementById("stop").value),
+        target: parseFloat(document.getElementById("target").value)
+    };
+
+    const response = await fetch("http://127.0.0.1:8000/calculate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+    });
+
+    const result = await response.json();
+
+    document.getElementById("output").textContent =
+        JSON.stringify(result, null, 2);
+}
+</script>
+
+</body>
+</html>
+

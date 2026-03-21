@@ -40,7 +40,7 @@ except ImportError:
 from cachetools import TTLCache
 from config import (
     PORTFOLIO_TICKERS, TICKER_NAMES, TICKER_SECTOR,
-    INDICES, COMMODITIES, CRYPTO, FX, FUTURES, BONDS,
+    INDICES, COMMODITIES, CRYPTO, FX, FUTURES, BONDS, SECTORS,
     PERIOD, INTERVAL, CACHE_TTL, NEWS_SOURCES,
 )
 
@@ -53,6 +53,7 @@ _fundamentals_cache = TTLCache(maxsize=50,  ttl=3600)       # 1-hour fundamental
 _options_cache      = TTLCache(maxsize=30,  ttl=120)        # 2-min options cache (live during market hours)
 _meta_cache         = TTLCache(maxsize=200, ttl=86400)      # 24-hour name/sector cache for unknown tickers
 _calendar_cache     = TTLCache(maxsize=10,  ttl=1800)       # 30-min calendar cache
+_sector_cache       = TTLCache(maxsize=5,   ttl=300)        # 5-min sector heatmap cache
 
 # ── Sector → colour map for auto-detected tickers ─────────────────────────────
 _SECTOR_COLORS = {
@@ -565,6 +566,98 @@ def get_market_data(section: str, force_refresh: bool = False) -> list:
     rows.sort(key=lambda r: r["chg_pct"], reverse=True)
     _market_cache[cache_key] = rows
     return rows
+
+
+def get_sector_data(force_refresh: bool = False) -> list:
+    """
+    Fetch daily % change for each S&P 500 sector ETF.
+    Returns list of row dicts suitable for the sector heatmap.
+    """
+    cache_key = "sectors"
+    if not force_refresh and cache_key in _sector_cache:
+        return _sector_cache[cache_key]
+
+    rows = []
+    for symbol, name, category in SECTORS:
+        row = _fetch_market_row(symbol, name, category)
+        if row is not None:
+            rows.append(row)
+
+    _sector_cache[cache_key] = rows
+    return rows
+
+
+# Top 6 holdings by market-cap weight for each SPDR sector ETF
+_SECTOR_TOP_HOLDINGS = {
+    "XLK":  ["AAPL",  "MSFT",  "NVDA",  "AVGO",  "ORCL",  "CRM"],
+    "XLF":  ["BRK-B", "JPM",   "V",     "MA",    "BAC",   "GS"],
+    "XLV":  ["LLY",   "UNH",   "JNJ",   "ABBV",  "MRK",   "TMO"],
+    "XLY":  ["AMZN",  "TSLA",  "HD",    "BKNG",  "LOW",   "TJX"],
+    "XLP":  ["WMT",   "COST",  "PG",    "KO",    "PEP",   "PM"],
+    "XLI":  ["GE",    "RTX",   "HON",   "CAT",   "UNP",   "ETN"],
+    "XLE":  ["XOM",   "CVX",   "COP",   "EOG",   "SLB",   "PSX"],
+    "XLC":  ["GOOGL", "META",  "NFLX",  "DIS",   "TMUS",  "VZ"],
+    "XLRE": ["PLD",   "AMT",   "EQIX",  "WELL",  "SPG",   "DLR"],
+    "XLB":  ["LIN",   "SHW",   "ECL",   "APD",   "FCX",   "NEM"],
+    "XLU":  ["NEE",   "SO",    "DUK",   "AEP",   "SRE",   "EXC"],
+}
+
+# Cache for holdings drill-down data (15-min TTL — same as briefing)
+_holdings_cache = TTLCache(maxsize=20, ttl=900)
+
+
+def get_sector_holdings_data(etf_symbol: str, force_refresh: bool = False) -> list:
+    """
+    Return live price/change/market-cap data for the top holdings of a sector ETF.
+    Each dict contains: symbol, name, price, chg_pct, chg_abs, mkt_cap.
+    """
+    cache_key = f"holdings_{etf_symbol}"
+    if not force_refresh and cache_key in _holdings_cache:
+        return _holdings_cache[cache_key]
+
+    tickers = _SECTOR_TOP_HOLDINGS.get(etf_symbol, [])
+    results = []
+    for sym in tickers:
+        try:
+            t  = yf.Ticker(sym)
+            fi = t.fast_info
+
+            df = t.history(period="5d", interval="1d", auto_adjust=True)
+            if df is None or len(df) < 2:
+                continue
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            price    = _safe_float(df.iloc[-1]["Close"])
+            prev     = _safe_float(df.iloc[-2]["Close"])
+            chg_abs  = price - prev
+            chg_pct  = _pct_change(price, prev)
+
+            # Market cap from fast_info
+            mkt_cap  = getattr(fi, "market_cap", None) or 0
+
+            # Company name — use meta cache to avoid repeat lookups
+            name_key = f"name_{sym}"
+            if name_key in _meta_cache:
+                name = _meta_cache[name_key]
+            else:
+                try:
+                    name = t.info.get("shortName") or t.info.get("longName") or sym
+                except Exception:
+                    name = sym
+                _meta_cache[name_key] = name
+
+            results.append({
+                "symbol":  sym,
+                "name":    name,
+                "price":   price,
+                "chg_abs": chg_abs,
+                "chg_pct": chg_pct,
+                "mkt_cap": mkt_cap,
+            })
+        except Exception:
+            continue
+
+    _holdings_cache[cache_key] = results
+    return results
 
 
 def get_futures_data(force_refresh: bool = False) -> list:

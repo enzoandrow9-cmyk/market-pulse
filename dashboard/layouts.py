@@ -6,7 +6,7 @@
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 
-from config import C, PORTFOLIO_TICKERS, TICKER_NAMES, TICKER_SECTOR, PRESET_TICKERS, DEFAULT_SETTINGS
+from config import C, CHART, PORTFOLIO_TICKERS, TICKER_NAMES, TICKER_SECTOR, PRESET_TICKERS, DEFAULT_SETTINGS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared CSS-in-Python style constants
@@ -53,24 +53,40 @@ VALUE_STYLE = {
 # Top nav bar
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_navbar() -> html.Div:
-    tab_style = {
-        "padding":    "8px 18px",
-        "fontFamily": FONT_MONO,
-        "fontSize":   "11px",
-        "fontWeight": "600",
-        "letterSpacing": "0.08em",
-        "color":      C["text_secondary"],
-        "cursor":     "pointer",
-        "border":     "none",
-        "borderBottom":"2px solid transparent",
-        "background": "transparent",
-        "textTransform": "uppercase",
-    }
-    active_tab_style = {**tab_style,
-                        "color":       "var(--accent)",
-                        "borderBottom":"2px solid var(--accent)"}
+_NAV_TABS = [
+    ("PORTFOLIO",    "portfolio"),
+    ("DEEP DIVE",    "deepdive"),
+    ("MARKET",       "market"),
+    ("QUANT LAB",    "quantlab"),
+    ("INTELLIGENCE", "intelligence"),
+    ("CALENDAR",     "calendar"),
+    ("NEWS",         "news"),
+    ("⚙ SETTINGS",  "settings"),
+]
 
+NAV_BTN_STYLE = {
+    "fontFamily":    FONT_MONO,
+    "fontSize":      "11px",
+    "fontWeight":    "600",
+    "letterSpacing": "0.08em",
+    "textTransform": "uppercase",
+    "color":         C["text_secondary"],
+    "background":    "transparent",
+    "border":        "none",
+    "borderBottom":  "2px solid transparent",
+    "padding":       "14px 8px",
+    "cursor":        "pointer",
+    "whiteSpace":    "nowrap",
+}
+
+NAV_BTN_ACTIVE_STYLE = {
+    **NAV_BTN_STYLE,
+    "color":        "var(--accent)",
+    "borderBottom": "2px solid var(--accent)",
+}
+
+
+def build_navbar() -> html.Div:
     return html.Div([
         # Left: brand
         html.Div([
@@ -84,30 +100,24 @@ def build_navbar() -> html.Div:
             html.Span("  TERMINAL", style={"color": C["text_dim"], "fontWeight": "400",
                                             "fontFamily": FONT_MONO, "fontSize": "10px",
                                             "letterSpacing": "0.18em", "marginLeft": "6px"}),
-        ], style={"display":"flex","alignItems":"center","gap":"0px"}),
+        ], style={"display":"flex","alignItems":"center","gap":"0px","flexShrink":"0"}),
 
-        # Center: tabs
-        dcc.Tabs(
-            id="main-tabs",
-            value="portfolio",
-            children=[
-                dcc.Tab(label="PORTFOLIO",  value="portfolio",
-                        style=tab_style, selected_style=active_tab_style),
-                dcc.Tab(label="DEEP DIVE",  value="deepdive",
-                        style=tab_style, selected_style=active_tab_style),
-                dcc.Tab(label="MARKET",     value="market",
-                        style=tab_style, selected_style=active_tab_style),
-                dcc.Tab(label="INTELLIGENCE", value="intelligence",
-                        style=tab_style, selected_style=active_tab_style),
-                dcc.Tab(label="CALENDAR",   value="calendar",
-                        style=tab_style, selected_style=active_tab_style),
-                dcc.Tab(label="NEWS",       value="news",
-                        style=tab_style, selected_style=active_tab_style),
-                dcc.Tab(label="⚙ SETTINGS", value="settings",
-                        style=tab_style, selected_style=active_tab_style),
-            ],
-            style={"border":"none","background":"transparent"},
-        ),
+        # Center: custom nav buttons — full CSS control, no Dash internals
+        html.Div([
+            html.Button(
+                label,
+                id=f"nav-btn-{val}",
+                n_clicks=0,
+                style=NAV_BTN_ACTIVE_STYLE if val == "portfolio" else NAV_BTN_STYLE,
+            )
+            for label, val in _NAV_TABS
+        ], style={
+            "display":        "flex",
+            "flex":           "1",
+            "justifyContent": "space-evenly",
+            "alignItems":     "center",
+            "height":         "100%",
+        }),
 
         # Right: clock + refresh
         html.Div([
@@ -126,7 +136,7 @@ def build_navbar() -> html.Div:
                             "borderRadius":"2px",
                             "letterSpacing":"0.08em",
                         }),
-        ], style={"display":"flex","alignItems":"center"}),
+        ], style={"display":"flex","alignItems":"center","flexShrink":"0"}),
 
     ], style={
         "display":       "flex",
@@ -992,7 +1002,25 @@ def build_market_tab() -> html.Div:
                 html.Div("COMMODITIES", style=SECTION_TITLE),
                 html.Div(id="market-commodities"),
             ], width=12),
-        ]),
+        ], style={"marginBottom":"14px"}),
+
+        # Sector heatmap — full width, static Graph ID for clickData
+        html.Div([
+            html.Div("S&P 500 SECTORS  ·  DAILY PERFORMANCE", style={**SECTION_TITLE, "marginBottom":"10px"}),
+            dcc.Graph(
+                id     = "sector-heatmap-graph",
+                config = {"displayModeBar": False},
+                style  = {"height": "220px"},
+            ),
+            # Drill-down panel — revealed on tile click
+            html.Div(id="sector-drill-down", style={"display": "none"}),
+        ], style={
+            "background":   C["bg_panel"],
+            "border":       f"1px solid {C['border']}",
+            "borderLeft":   f"3px solid var(--accent)",
+            "borderRadius": "4px",
+            "padding":      "12px 16px",
+        }),
     ], style={"padding":"14px 20px"})
 
 
@@ -1037,6 +1065,105 @@ def build_market_table(rows: list) -> html.Div:
 
     return html.Div([header] + data_rows,
                     style={**CARD_STYLE, "padding":"10px 14px"})
+
+
+def build_sector_drill_down(etf_symbol: str, sector_name: str, holdings: list) -> html.Div:
+    """
+    Panel shown below the heatmap when a sector tile is clicked.
+    Displays the top holdings with live price, daily change, and market cap.
+    """
+    def _fmt_mcap(v):
+        if not v:
+            return "N/A"
+        if v >= 1e12:
+            return f"${v/1e12:.2f}T"
+        if v >= 1e9:
+            return f"${v/1e9:.1f}B"
+        return f"${v/1e6:.0f}M"
+
+    cards = []
+    for h in holdings:
+        chg_color = C["green"] if h["chg_pct"] >= 0 else C["red"]
+        sign      = "+" if h["chg_pct"] >= 0 else ""
+        cards.append(html.Div([
+            # Ticker
+            html.Div(h["symbol"], style={
+                "color":        "var(--accent)",
+                "fontFamily":   FONT_MONO,
+                "fontSize":     "13px",
+                "fontWeight":   "700",
+                "letterSpacing":"0.08em",
+                "marginBottom": "2px",
+            }),
+            # Company name
+            html.Div(h["name"], style={
+                "color":       C["text_secondary"],
+                "fontFamily":  FONT_MONO,
+                "fontSize":    "9px",
+                "letterSpacing":"0.04em",
+                "marginBottom":"6px",
+                "overflow":    "hidden",
+                "textOverflow":"ellipsis",
+                "whiteSpace":  "nowrap",
+            }),
+            # Price
+            html.Div(f"${h['price']:,.2f}", style={
+                "color":      C["text_white"],
+                "fontFamily": FONT_MONO,
+                "fontSize":   "13px",
+                "fontWeight": "600",
+                "marginBottom":"2px",
+            }),
+            # Daily change
+            html.Div(f"{sign}{h['chg_pct']:.2f}%  {sign}{h['chg_abs']:.2f}", style={
+                "color":      chg_color,
+                "fontFamily": FONT_MONO,
+                "fontSize":   "11px",
+                "fontWeight": "600",
+                "marginBottom":"4px",
+            }),
+            # Market cap
+            html.Div(f"MCAP  {_fmt_mcap(h['mkt_cap'])}", style={
+                "color":        C["text_dim"],
+                "fontFamily":   FONT_MONO,
+                "fontSize":     "9px",
+                "letterSpacing":"0.06em",
+            }),
+        ], style={
+            "background":   C["bg"],
+            "border":       f"1px solid {C['border']}",
+            "borderRadius": "3px",
+            "padding":      "10px 12px",
+            "flex":         "1",
+            "minWidth":     "120px",
+        }))
+
+    return html.Div([
+        # Sub-header
+        html.Div([
+            html.Span(f"▼ {sector_name.upper()}  ·  TOP HOLDINGS", style={
+                "color":        "var(--accent)",
+                "fontFamily":   FONT_MONO,
+                "fontSize":     "10px",
+                "fontWeight":   "700",
+                "letterSpacing":"0.12em",
+            }),
+            html.Span("BY MARKET CAP", style={
+                "color":        C["text_dim"],
+                "fontFamily":   FONT_MONO,
+                "fontSize":     "9px",
+                "letterSpacing":"0.10em",
+                "marginLeft":   "10px",
+            }),
+        ], style={"marginBottom": "10px", "marginTop": "14px",
+                  "borderTop": f"1px solid {C['border']}", "paddingTop": "12px"}),
+        # Holdings cards
+        html.Div(cards, style={
+            "display":   "flex",
+            "gap":       "8px",
+            "flexWrap":  "wrap",
+        }),
+    ])
 
 
 def build_futures_table(rows: list) -> html.Div:
@@ -2155,12 +2282,62 @@ def build_settings_tab(settings: dict = None) -> html.Div:
 
     alerts_section = build_alerts_section(settings)
 
+    # ── Section: Chart Indicators ─────────────────────────────────────────────
+    ind = settings.get("indicators", DEFAULT_SETTINGS["indicators"])
+
+    def _ind_btn(key, label, color):
+        active = ind.get(key, True)
+        return html.Button(label,
+            id={"type": "ind-toggle-btn", "index": key},
+            n_clicks=0,
+            style={
+                "background":    f"color-mix(in srgb, {color} 20%, transparent)" if active else "transparent",
+                "border":        f"1px solid {color}" if active else f"1px solid {C['border']}",
+                "borderRadius":  "3px",
+                "color":         color if active else C["text_dim"],
+                "fontFamily":    FONT_MONO,
+                "fontSize":      "10px",
+                "fontWeight":    "700" if active else "400",
+                "padding":       "5px 12px",
+                "cursor":        "pointer",
+                "letterSpacing": "0.05em",
+                "whiteSpace":    "nowrap",
+            },
+        )
+
+    indicators_section = html.Div([
+        html.Div("CHART INDICATORS", style=SECTION_TITLE),
+
+        html.Div("Overlays", style={**LABEL_STYLE, "marginBottom": "8px"}),
+        html.Div([
+            _ind_btn("ma20",  "MA 20",  CHART["ma20"]),
+            _ind_btn("ma50",  "MA 50",  CHART["ma50"]),
+            _ind_btn("ma200", "MA 200", CHART["ma200"]),
+            _ind_btn("bb",    "Bollinger Bands", "#64748b"),
+        ], style={"display": "flex", "gap": "6px", "flexWrap": "wrap", "marginBottom": "16px"}),
+
+        html.Div("Sub-panels", style={**LABEL_STYLE, "marginBottom": "8px"}),
+        html.Div([
+            _ind_btn("volume", "Volume", C["blue"]),
+            _ind_btn("rsi",    "RSI",    CHART["rsi"]),
+            _ind_btn("macd",   "MACD",   CHART["macd_line"]),
+            _ind_btn("adx",    "ADX",    CHART["adx"]),
+        ], style={"display": "flex", "gap": "6px", "flexWrap": "wrap", "marginBottom": "8px"}),
+
+        html.Div(id="settings-indicators-status", style={
+            **LABEL_STYLE, "color": C["green"], "fontSize": "10px",
+        }),
+    ], style={**CARD_STYLE, "marginBottom": "12px"})
+
     return html.Div([
         dbc.Row([
             dbc.Col(appearance_section,  width=3),
             dbc.Col(portfolio_section,   width=3),
             dbc.Col(ticker_section,      width=6),
         ]),
+        dbc.Row([
+            dbc.Col(indicators_section, width=12),
+        ], style={"marginTop": "12px"}),
         dbc.Row([
             dbc.Col(alerts_section, width=12),
         ], style={"marginTop": "12px"}),
@@ -2391,6 +2568,10 @@ def build_app_layout() -> html.Div:
         dcc.Store(id="store-notifications", data=[]),
         # Intelligence system data store
         dcc.Store(id="store-intelligence", data=None),
+
+        # Hidden dcc.Tabs — used purely as a value store for routing callbacks
+        dcc.Tabs(id="main-tabs", value="portfolio", children=[],
+                 style={"display":"none"}),
 
         # Navbar
         build_navbar(),
