@@ -1512,19 +1512,39 @@ def toggle_indicator(n_clicks_list, settings):
     ind[key] = not ind.get(key, True)
     settings["indicators"] = ind
 
-    # Rebuild button styles
+    # Rebuild button styles — order must match DOM order in layouts.py
     from config import CHART as _CHART
     _color_map = {
         "ma20":   _CHART["ma20"],
         "ma50":   _CHART["ma50"],
         "ma200":  _CHART["ma200"],
+        "ema9":   _CHART["ema9"],
+        "ema21":  _CHART["ema21"],
         "bb":     "#64748b",
+        "vwap":   _CHART["vwap"],
         "volume": C["blue"],
+        "obv":    "#22d3ee",
         "rsi":    _CHART["rsi"],
         "macd":   _CHART["macd_line"],
         "adx":    _CHART["adx"],
     }
-    _keys = ["ma20", "ma50", "ma200", "bb", "volume", "rsi", "macd", "adx"]
+    _label_map = {
+        "ma20":   "MA 20",
+        "ma50":   "MA 50",
+        "ma200":  "MA 200",
+        "ema9":   "EMA 9",
+        "ema21":  "EMA 21",
+        "bb":     "Bollinger Bands",
+        "vwap":   "VWAP",
+        "volume": "Volume",
+        "obv":    "OBV",
+        "rsi":    "RSI",
+        "macd":   "MACD",
+        "adx":    "ADX",
+    }
+    # Must match the button order in layouts.py Settings tab
+    _keys = ["ma20", "ma50", "ma200", "ema9", "ema21", "bb", "vwap",
+             "volume", "obv", "rsi", "macd", "adx"]
     styles = []
     for k in _keys:
         color  = _color_map.get(k, C["amber"])
@@ -1543,7 +1563,7 @@ def toggle_indicator(n_clicks_list, settings):
             "whiteSpace":    "nowrap",
         })
 
-    label = key.upper().replace("MA", "MA ").replace("BB", "Bollinger Bands")
+    label = _label_map.get(key, key.upper())
     status = f"{'ON' if ind[key] else 'OFF'}  —  {label}"
     return settings, status, styles
 
