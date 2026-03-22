@@ -165,7 +165,7 @@ C_LIGHT = {
 
 # ── Preset popular tickers users can add to portfolios ────────────────────────
 PRESET_TICKERS = {
-    "Tech":        ["AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "NVDA", "AMD", "INTC"],
+    "Tech":        ["AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "INTC"],
     "Finance":     ["JPM", "BAC", "GS", "MS", "V", "MA", "AXP", "BLK", "XLF"],
     "Crypto":      ["MSTR", "COIN", "RIOT", "MARA", "HUT"],
     "Energy":      ["XOM", "CVX", "COP", "SLB", "OXY"],
