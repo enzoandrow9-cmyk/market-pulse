@@ -502,5 +502,1013 @@
     "probability": 85,
     "sms": 36,
     "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.837114",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.837953",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.838470",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.838972",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.839550",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.840104",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:11:34.840628",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.120561",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.126547",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.129558",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.131426",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.133048",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.135087",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:18:45.136850",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.802541",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.806314",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.808136",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.809860",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.811943",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.814691",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:19:27.827273",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.805867",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.811029",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.813312",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.815082",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.816735",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.818700",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:20:27.819715",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.796435",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.798795",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.799880",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.801260",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.802387",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.803409",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:21:27.804545",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.303393",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.304521",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.305530",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.306179",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.306836",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.307489",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:22:28.308127",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.804289",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.809828",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.811924",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.813964",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.815486",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.816455",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:23:27.817376",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.504103",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.506665",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.507914",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.508886",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.509997",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.510820",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:24:28.511605",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.621415",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.627972",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.630532",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.633350",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.635901",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.638893",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:25:59.640993",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.973363",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.976004",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.976847",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.978118",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.979142",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.980866",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:27:59.981986",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.517830",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.526209",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.529086",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.531771",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.534922",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.536121",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:29:59.537096",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.774365",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.778069",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.780278",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.781681",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.784017",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.785595",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:30:27.787105",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.543592",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.544728",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.545660",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.546792",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.547668",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.548600",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:33.549517",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.521172",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.524537",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.528346",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.532074",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.538653",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.542634",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:34.546127",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.833330",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.836985",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.840001",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.843179",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.846764",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.851047",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:37.872494",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.305907",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.308669",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.311037",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.313158",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.316623",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.318774",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.321431",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.335621",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.337356",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.338857",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.340318",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.341771",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.343233",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:38.344697",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.628009",
+    "ticker": "NVDA",
+    "bias": "bearish",
+    "probability": 84,
+    "sms": 35,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.634451",
+    "ticker": "PLTR",
+    "bias": "bullish",
+    "probability": 78,
+    "sms": 83,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.642964",
+    "ticker": "MSTR",
+    "bias": "bearish",
+    "probability": 78,
+    "sms": 44,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.647153",
+    "ticker": "IBM",
+    "bias": "neutral",
+    "probability": 50,
+    "sms": 65,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.651955",
+    "ticker": "MU",
+    "bias": "bullish",
+    "probability": 65,
+    "sms": 60,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.654866",
+    "ticker": "XLF",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 30,
+    "outcome": null
+  },
+  {
+    "timestamp": "2026-03-21T22:34:41.657525",
+    "ticker": "SMHX",
+    "bias": "bearish",
+    "probability": 85,
+    "sms": 36,
+    "outcome": null
   }
 ]
