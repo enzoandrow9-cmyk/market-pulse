@@ -49,11 +49,29 @@ server = app.server  # for deployment if needed
 # ── Secret key for Flask session cookies ──────────────────────────────────────
 server.secret_key = os.environ.get("SECRET_KEY", "dev-local-key-change-in-prod")
 
-# ── Basic Auth (only active when env vars are set — skipped locally) ──────────
-_AUTH_USER = os.environ.get("DASH_AUTH_USER")
-_AUTH_PASS = os.environ.get("DASH_AUTH_PASS")
-if _AUTH_USER and _AUTH_PASS:
-    dash_auth.BasicAuth(app, {_AUTH_USER: _AUTH_PASS})
+# ── Multi-user Basic Auth ──────────────────────────────────────────────────────
+# DASH_AUTH_USERS env var: JSON dict of {"username": "password", ...}
+# Falls back to single DASH_AUTH_USER/DASH_AUTH_PASS for backwards compat.
+# Auth is skipped entirely when no env vars are set (local dev).
+def _build_user_dict() -> dict | None:
+    raw = os.environ.get("DASH_AUTH_USERS")
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+    # Legacy single-user fallback
+    u = os.environ.get("DASH_AUTH_USER")
+    p = os.environ.get("DASH_AUTH_PASS")
+    if u and p:
+        return {u: p}
+    return None
+
+_AUTH_USERS = _build_user_dict()
+if _AUTH_USERS:
+    dash_auth.BasicAuth(app, _AUTH_USERS)
+
+import profiles  # noqa: E402  (import after app init so Flask context is ready)
 quantlab_runner = QuantLabRunner(output_root=str(Path(__file__).resolve().parent / "quantlab_runs"))
 
 # Custom CSS injected globally
@@ -138,6 +156,27 @@ app.index_string = """
 """
 
 app.layout = ly.build_app_layout()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Profile load — fires once on page load, pulls settings from Supabase
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("user-settings", "data", allow_duplicate=True),
+    Input("interval-1s", "n_intervals"),
+    State("user-settings", "data"),
+    prevent_initial_call=True,
+)
+def load_profile_on_startup(n_intervals, current_settings):
+    """Load user settings from Supabase once on first tick."""
+    if n_intervals != 1:
+        return dash.no_update
+    username = profiles.get_username_from_request()
+    if not username:
+        return dash.no_update
+    loaded = profiles.load_settings(username)
+    return loaded
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Navbar tab buttons → switch active tab
@@ -1448,6 +1487,8 @@ def handle_settings(theme_clicks, accent_clicks, add_clicks, remove_clicks,
 
     # ── Save button ───────────────────────────────────────────────────────────
     elif "settings-save-btn" in triggered_id:
+        username = profiles.get_username_from_request()
+        profiles.save_settings(username, settings)
         status_msg = f"✓ Saved — {len(tickers)} tickers in \"{portfolio['name']}\""
 
     portfolio["tickers"] = tickers
