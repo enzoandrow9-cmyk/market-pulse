@@ -977,10 +977,14 @@ def update_deepdive(ticker, period, ts, settings):
     Output("market-commodities",   "children"),
     Output("market-fx",            "children"),
     Output("sector-heatmap-graph", "figure"),
+    Output("fear-greed-gauge",     "figure"),
+    Output("fear-greed-labels",    "children"),
     Input("store-refresh-ts",      "data"),
     prevent_initial_call=False,
 )
 def update_market_monitor(ts):
+    from dash import html as dhtml
+
     # Futures strip
     try:
         futures_rows = dm.get_futures_data()
@@ -1002,14 +1006,39 @@ def update_market_monitor(ts):
                            style={"color": C["red"], "fontFamily": "'IBM Plex Mono'",
                                   "fontSize": "11px"}))
 
-    # Sector heatmap figure — output directly to dcc.Graph.figure
+    # Sector heatmap
     try:
         sector_data = dm.get_sector_data()
         sector_fig  = cb.build_sector_heatmap(sector_data)
     except Exception:
         sector_fig  = go.Figure()
-
     results.append(sector_fig)
+
+    # Fear & Greed gauge
+    try:
+        fng     = dm.get_fear_greed()
+        fng_fig = cb.build_fear_greed_gauge(fng)
+
+        def _prev_label(title, score, color):
+            return dhtml.Div([
+                dhtml.Div(title, style={"color": C["text_dim"], "fontSize": "9px",
+                                        "letterSpacing": "0.08em", "fontFamily": ly.FONT_MONO}),
+                dhtml.Div(str(score), style={"color": color, "fontSize": "11px",
+                                              "fontWeight": "700", "fontFamily": ly.FONT_MONO}),
+            ], style={"textAlign": "center"})
+
+        c = fng["color"]
+        fng_labels = [
+            _prev_label("PREV CLOSE", fng["previous_close"], c),
+            _prev_label("1 WEEK AGO", fng["previous_week"],  c),
+            _prev_label("1 MONTH AGO",fng["previous_month"], c),
+        ]
+    except Exception:
+        fng_fig    = go.Figure()
+        fng_labels = []
+
+    results.append(fng_fig)
+    results.append(fng_labels)
     return results
 
 

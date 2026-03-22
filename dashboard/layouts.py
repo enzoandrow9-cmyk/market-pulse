@@ -996,17 +996,45 @@ def build_news_section(articles: list, title: str = "RECENT NEWS") -> html.Div:
 
 def build_market_tab() -> html.Div:
     return html.Div([
-        # Futures strip — full width, top of page
+        # Fear & Greed + Futures strip — side by side, full width
         html.Div([
-            html.Div("FUTURES  ·  EXTENDED HOURS", style={**SECTION_TITLE, "marginBottom":"10px"}),
-            html.Div(id="market-futures"),
+            # Fear & Greed gauge
+            html.Div([
+                html.Div("FEAR & GREED INDEX", style={**SECTION_TITLE, "marginBottom": "6px"}),
+                dcc.Graph(
+                    id="fear-greed-gauge",
+                    config={"displayModeBar": False},
+                    style={"height": "200px"},
+                ),
+                # Sub-labels: previous close / week / month
+                html.Div(id="fear-greed-labels", style={
+                    "display": "flex", "justifyContent": "space-around",
+                    "marginTop": "4px",
+                }),
+            ], style={
+                "background":   C["bg_panel"],
+                "border":       f"1px solid {C['border']}",
+                "borderLeft":   f"3px solid var(--accent)",
+                "borderRadius": "4px",
+                "padding":      "12px 16px",
+                "flex":         "0 0 280px",
+            }),
+
+            # Futures strip
+            html.Div([
+                html.Div("FUTURES  ·  EXTENDED HOURS", style={**SECTION_TITLE, "marginBottom": "10px"}),
+                html.Div(id="market-futures"),
+            ], style={
+                "background":   C["bg_panel"],
+                "border":       f"1px solid {C['border']}",
+                "borderLeft":   f"3px solid {C['blue']}",
+                "borderRadius": "4px",
+                "padding":      "12px 16px",
+                "flex":         "1",
+            }),
         ], style={
-            "background":   C["bg_panel"],
-            "border":       f"1px solid {C['border']}",
-            "borderLeft":   f"3px solid {C['blue']}",
-            "borderRadius": "4px",
-            "padding":      "12px 16px",
-            "marginBottom": "14px",
+            "display": "flex", "gap": "14px", "marginBottom": "14px",
+            "alignItems": "stretch",
         }),
 
         dbc.Row([

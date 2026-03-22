@@ -1526,3 +1526,106 @@ def clear_cache():
     _options_cache.clear()
     _meta_cache.clear()
     _calendar_cache.clear()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fear & Greed Index
+# ─────────────────────────────────────────────────────────────────────────────
+
+_fng_cache = TTLCache(maxsize=1, ttl=1800)  # 30-min cache
+
+def _label_from_score(score: float) -> str:
+    if score >= 75: return "Extreme Greed"
+    if score >= 55: return "Greed"
+    if score >= 45: return "Neutral"
+    if score >= 25: return "Fear"
+    return "Extreme Fear"
+
+def _color_from_score(score: float) -> str:
+    if score >= 75: return "#22c55e"
+    if score >= 55: return "#86efac"
+    if score >= 45: return "#fbbf24"
+    if score >= 25: return "#f97316"
+    return "#ef4444"
+
+def get_fear_greed() -> dict:
+    """
+    Fetch the Fear & Greed index score (0–100).
+    Tries CNN's data endpoint first; falls back to a VIX-based calculation.
+    Returns: {score, label, color, source, previous_close, previous_week, previous_month}
+    """
+    cache_key = "fng"
+    if cache_key in _fng_cache:
+        return _fng_cache[cache_key]
+
+    result = None
+
+    # ── Attempt 1: CNN Fear & Greed endpoint ──────────────────────────────────
+    try:
+        resp = requests.get(
+            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            fg   = data.get("fear_and_greed", {})
+            score = float(fg.get("score", 50))
+            result = {
+                "score":          round(score, 1),
+                "label":          fg.get("rating", _label_from_score(score)).replace("_", " ").title(),
+                "color":          _color_from_score(score),
+                "source":         "CNN",
+                "previous_close": round(float(fg.get("previous_close", score)), 1),
+                "previous_week":  round(float(fg.get("previous_1_week", score)), 1),
+                "previous_month": round(float(fg.get("previous_1_month", score)), 1),
+            }
+    except Exception:
+        pass
+
+    # ── Fallback: VIX-based composite ─────────────────────────────────────────
+    if result is None:
+        try:
+            vix_df  = yf.download("^VIX",  period="1mo", interval="1d", progress=False, auto_adjust=True)
+            spy_df  = yf.download("SPY",   period="6mo", interval="1d", progress=False, auto_adjust=True)
+
+            # VIX component: invert so high VIX = fear (low score)
+            vix_now  = float(vix_df["Close"].iloc[-1])
+            vix_comp = max(0, min(100, 100 - (vix_now - 10) * 3))
+
+            # Momentum component: SPY vs 125-day MA
+            spy_close = spy_df["Close"]
+            ma125     = spy_close.rolling(125).mean().iloc[-1]
+            spy_now   = float(spy_close.iloc[-1])
+            mom_comp  = max(0, min(100, 50 + (spy_now - float(ma125)) / float(ma125) * 500))
+
+            # 52-week high/low component
+            high52 = float(spy_close.rolling(252).max().iloc[-1])
+            low52  = float(spy_close.rolling(252).min().iloc[-1])
+            hl_comp = (spy_now - low52) / (high52 - low52) * 100 if high52 != low52 else 50
+
+            score = round((vix_comp * 0.4 + mom_comp * 0.35 + hl_comp * 0.25), 1)
+
+            # Previous periods
+            vix_prev_close  = float(vix_df["Close"].iloc[-2]) if len(vix_df) > 1 else vix_now
+            prev_close_comp = max(0, min(100, 100 - (vix_prev_close - 10) * 3))
+            prev_score      = round((prev_close_comp * 0.4 + mom_comp * 0.35 + hl_comp * 0.25), 1)
+
+            result = {
+                "score":          score,
+                "label":          _label_from_score(score),
+                "color":          _color_from_score(score),
+                "source":         "Calculated",
+                "previous_close": prev_score,
+                "previous_week":  prev_score,
+                "previous_month": prev_score,
+            }
+        except Exception:
+            result = {
+                "score": 50, "label": "Neutral", "color": "#fbbf24",
+                "source": "N/A", "previous_close": 50,
+                "previous_week": 50, "previous_month": 50,
+            }
+
+    _fng_cache[cache_key] = result
+    return result

@@ -639,3 +639,65 @@ def build_sector_heatmap(sector_data: list) -> go.Figure:
         ),
     )
     return fig
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fear & Greed gauge
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_fear_greed_gauge(fng: dict) -> go.Figure:
+    """
+    Builds a Plotly indicator gauge for the Fear & Greed index.
+    fng dict: {score, label, color, source, previous_close, previous_week, previous_month}
+    """
+    score = fng.get("score", 50)
+    color = fng.get("color", "#fbbf24")
+    label = fng.get("label", "Neutral")
+
+    fig = go.Figure(go.Indicator(
+        mode  = "gauge+number",
+        value = score,
+        number = {
+            "font": {"family": "'IBM Plex Mono', monospace", "size": 36, "color": color},
+            "suffix": "",
+        },
+        title = {
+            "text": f"<b>{label}</b>",
+            "font": {"family": "'IBM Plex Mono', monospace", "size": 13, "color": color},
+        },
+        gauge = {
+            "axis": {
+                "range": [0, 100],
+                "tickvals": [0, 25, 45, 55, 75, 100],
+                "ticktext": ["0", "25", "45", "55", "75", "100"],
+                "tickfont": {"family": "'IBM Plex Mono', monospace", "size": 9,
+                             "color": C["text_dim"]},
+                "tickwidth": 1,
+                "tickcolor": C["border"],
+            },
+            "bar":        {"color": color, "thickness": 0.25},
+            "bgcolor":    C["bg_chart"],
+            "borderwidth": 0,
+            "steps": [
+                {"range": [0,  25], "color": "rgba(239,68,68,0.15)"},
+                {"range": [25, 45], "color": "rgba(249,115,22,0.12)"},
+                {"range": [45, 55], "color": "rgba(251,191,36,0.10)"},
+                {"range": [55, 75], "color": "rgba(134,239,172,0.12)"},
+                {"range": [75, 100],"color": "rgba(34,197,94,0.15)"},
+            ],
+            "threshold": {
+                "line":  {"color": C["text_dim"], "width": 2},
+                "thickness": 0.75,
+                "value": fng.get("previous_close", score),
+            },
+        },
+    ))
+
+    fig.update_layout(
+        paper_bgcolor = C["bg_panel"],
+        plot_bgcolor  = C["bg_panel"],
+        margin        = {"t": 60, "b": 10, "l": 20, "r": 20},
+        height        = 200,
+        font          = {"family": "'IBM Plex Mono', monospace", "color": C["text_primary"]},
+    )
+    return fig
