@@ -8,6 +8,7 @@
 
 import datetime
 import json
+import os
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,6 +17,7 @@ from pathlib import Path
 import dash
 from dash import Input, Output, State, ALL, MATCH, callback_context, dcc
 import dash_bootstrap_components as dbc
+import dash_auth
 import plotly.graph_objects as go
 
 from config import C, PORTFOLIO_TICKERS, DEFAULT_SETTINGS
@@ -43,6 +45,12 @@ app = dash.Dash(
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 server = app.server  # for deployment if needed
+
+# ── Basic Auth (only active when env vars are set — skipped locally) ──────────
+_AUTH_USER = os.environ.get("DASH_AUTH_USER")
+_AUTH_PASS = os.environ.get("DASH_AUTH_PASS")
+if _AUTH_USER and _AUTH_PASS:
+    dash_auth.BasicAuth(app, {_AUTH_USER: _AUTH_PASS})
 quantlab_runner = QuantLabRunner(output_root=str(Path(__file__).resolve().parent / "quantlab_runs"))
 
 # Custom CSS injected globally
@@ -1796,6 +1804,8 @@ app.clientside_callback(
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Local dev: bind to localhost only
+    # Production (Fly.io): gunicorn binds to 0.0.0.0:8050 via Dockerfile CMD
     print("\n" + "═" * 60)
     print("  ◈  MARKET PULSE TERMINAL  —  starting up…")
     print("═" * 60)

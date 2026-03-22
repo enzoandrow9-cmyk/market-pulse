@@ -1,0 +1,22 @@
+# ── Don't send these to Docker build context ──────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.env.*
+venv/
+.venv/
+
+# Quantlab run outputs (ephemeral, not needed in image)
+quantlab_runs/
+signal_history.json
+
+# Git
+.git/
+.gitignore
+
+# Local dev files
+*.log
+.DS_Store
