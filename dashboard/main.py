@@ -46,6 +46,9 @@ app = dash.Dash(
 )
 server = app.server  # for deployment if needed
 
+# ── Secret key for Flask session cookies ──────────────────────────────────────
+server.secret_key = os.environ.get("SECRET_KEY", "dev-local-key-change-in-prod")
+
 # ── Basic Auth (only active when env vars are set — skipped locally) ──────────
 _AUTH_USER = os.environ.get("DASH_AUTH_USER")
 _AUTH_PASS = os.environ.get("DASH_AUTH_PASS")
