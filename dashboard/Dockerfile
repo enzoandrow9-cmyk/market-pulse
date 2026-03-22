@@ -1,4 +1,4 @@
-# ── Market Pulse Terminal — Fly.io Dockerfile ─────────────────────────────────
+# ── Market Pulse Terminal — Render.com Dockerfile ─────────────────────────────
 FROM python:3.11-slim
 
 # Set working directory
@@ -22,6 +22,6 @@ RUN mkdir -p quantlab_runs
 # Expose the port Fly.io will route to
 EXPOSE 8050
 
-# Run with gunicorn — 2 workers, threads for concurrent users
-# main:server references the Flask server object inside main.py
-CMD ["gunicorn", "--bind", "0.0.0.0:8050", "--workers", "2", "--threads", "4", "--timeout", "120", "main:server"]
+# Run with gunicorn — 1 worker on free tier (limited CPU), more threads for concurrency
+# Timeout raised to 300s to handle slow yfinance fetches on cold start
+CMD ["gunicorn", "--bind", "0.0.0.0:8050", "--workers", "1", "--threads", "8", "--timeout", "300", "--keep-alive", "5", "main:server"]
