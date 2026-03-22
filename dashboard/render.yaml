@@ -1,0 +1,19 @@
+# ── Market Pulse Terminal — Render.com config ─────────────────────────────────
+services:
+  - type: web
+    name: market-pulse-terminal
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+
+    # Port gunicorn binds to (must match Dockerfile EXPOSE)
+    port: 8050
+
+    # Environment variables — set the secret values in Render dashboard
+    envVars:
+      - key: DASH_AUTH_USER
+        sync: false        # set manually in Render dashboard
+      - key: DASH_AUTH_PASS
+        sync: false        # set manually in Render dashboard
+      - key: ANTHROPIC_API_KEY
+        sync: false        # set manually in Render dashboard
