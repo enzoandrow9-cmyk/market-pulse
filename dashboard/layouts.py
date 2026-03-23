@@ -61,6 +61,9 @@ _NAV_TABS = [
     ("◆", "INTELLIGENCE", "intelligence"),
     ("▧", "CALENDAR",     "calendar"),
     ("≡", "NEWS",         "news"),
+    # ── New tabs ──────────────────────────────────────────────────────────────
+    ("⊛", "SIGNALS",      "signals"),
+    ("⧉", "CORRELATIONS", "correlations"),
     ("⚙", "SETTINGS",    "settings"),
 ]
 
@@ -1066,14 +1069,51 @@ def build_market_tab() -> html.Div:
 
         # Sector heatmap — full width, static Graph ID for clickData
         html.Div([
-            html.Div("S&P 500 SECTORS  ·  DAILY PERFORMANCE", style={**SECTION_TITLE, "marginBottom":"10px"}),
+            # Header row with period toggle
+            html.Div([
+                html.Div("S&P 500 SECTORS", style={**SECTION_TITLE,
+                         "marginBottom": "0", "borderBottom": "none",
+                         "paddingBottom": "0", "flex": "1"}),
+                html.Span("market-cap weighted  ·  click sector to drill in", style={
+                    "color": C["text_dim"], "fontFamily": FONT_MONO,
+                    "fontSize": "9px", "letterSpacing": "0.06em",
+                    "marginRight": "auto", "alignSelf": "center",
+                    "paddingLeft": "8px",
+                }),
+                # Period toggle buttons
+                html.Div([
+                    *[html.Button(p,
+                        id={"type": "heatmap-period-btn", "index": p},
+                        n_clicks=0,
+                        style={
+                            "background":   "var(--accent)" if p == "1D" else "transparent",
+                            "color":        C["bg"] if p == "1D" else C["text_secondary"],
+                            "border":       "1px solid var(--accent)" if p == "1D"
+                                            else f"1px solid {C['border']}",
+                            "fontFamily":   FONT_MONO,
+                            "fontSize":     "9px",
+                            "padding":      "3px 10px",
+                            "cursor":       "pointer",
+                            "borderRadius": "2px",
+                            "letterSpacing":"0.08em",
+                        })
+                    for p in ["1D", "1W", "1M", "YTD"]],
+                ], style={"display": "flex", "gap": "5px"}),
+            ], style={"display": "flex", "alignItems": "center",
+                      "marginBottom": "10px", "gap": "6px"}),
+
             dcc.Graph(
                 id     = "sector-heatmap-graph",
                 config = {"displayModeBar": False},
-                style  = {"height": "220px"},
+                style  = {"height": "400px"},
             ),
-            # Drill-down panel — revealed on tile click
-            html.Div(id="sector-drill-down", style={"display": "none"}),
+            # Drill-down panel — revealed on tile click; Loading shows spinner during fetch
+            dcc.Loading(
+                html.Div(id="sector-drill-down", style={"display": "none"}),
+                type="circle",
+                color="var(--accent)",
+                style={"minHeight": "0"},
+            ),
         ], style={
             "background":   C["bg_panel"],
             "border":       f"1px solid {C['border']}",
@@ -2637,6 +2677,20 @@ def build_app_layout() -> html.Div:
         dcc.Tabs(id="main-tabs", value="portfolio", children=[],
                  style={"display":"none"}),
 
+        # ── New feature stores ────────────────────────────────────────────────
+        # Command palette
+        dcc.Store(id="cmd-palette-visible", data=False),
+        dcc.Store(id="cmd-result-store",    data=None),
+        # Signals scanner
+        dcc.Store(id="signals-store",       data=None),
+        # Correlations
+        dcc.Store(id="corr-period-store",   data="1Y"),
+        # Sector heatmap period
+        dcc.Store(id="heatmap-period-store", data="1D"),
+
+        # ── Global command palette overlay ────────────────────────────────────
+        build_command_palette(),
+
         # Fixed left sidebar
         build_sidebar(),
 
@@ -2707,6 +2761,9 @@ def build_intelligence_tab() -> html.Div:
 
         # Row 3: Signal Feed (full width)
         html.Div(id="intel-signal-feed", style={**_panel, "minHeight": "160px"}),
+
+        # Row 4: Macro Intelligence panel (new — FRED + Treasury data)
+        build_macro_panel(),
 
     ], style={
         "padding":    "16px 20px",
@@ -3101,3 +3158,477 @@ def build_intel_signal_feed(signal_feed: list, signal_stats: dict) -> html.Div:
         html.Div(stats_parts, style={"display": "flex", "alignItems": "center",
                                       "paddingTop": "6px", "borderTop": f"1px solid {C['border']}"}),
     ])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND PALETTE  —  Bloomberg-style ⌘K / Ctrl+K command bar
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_command_palette() -> html.Div:
+    """
+    Full-screen command palette overlay.
+    Hidden by default (display:none); toggled via clientside callback on ⌘K / Ctrl+K.
+
+    Structure:
+      - Backdrop  (click-to-close)
+      - Modal panel
+          - Input field
+          - Suggestions list (id="cmd-suggestions")
+    """
+    input_style = {
+        "width":       "100%",
+        "background":  "transparent",
+        "border":      "none",
+        "outline":     "none",
+        "color":       C["text_white"],
+        "fontFamily":  FONT_MONO,
+        "fontSize":    "16px",
+        "fontWeight":  "600",
+        "letterSpacing":"0.06em",
+        "padding":     "0",
+    }
+
+    return html.Div(
+        id="cmd-palette-overlay",
+        children=[
+            # Backdrop
+            html.Div(
+                id="cmd-palette-backdrop",
+                style={
+                    "position":   "fixed",
+                    "inset":      "0",
+                    "background": "rgba(6,11,25,0.80)",
+                    "zIndex":     "9999",
+                    "backdropFilter": "blur(2px)",
+                },
+            ),
+            # Panel
+            html.Div([
+                # Input row
+                html.Div([
+                    html.Span("❯", style={
+                        "color":       "var(--accent)",
+                        "fontFamily":  FONT_MONO,
+                        "fontSize":    "14px",
+                        "marginRight": "10px",
+                        "flexShrink":  "0",
+                    }),
+                    dcc.Input(
+                        id="cmd-input",
+                        type="text",
+                        placeholder="Enter command  (e.g. AAPL DD, BTC CORR, SIGNALS)",
+                        debounce=False,
+                        autoFocus=True,
+                        style=input_style,
+                    ),
+                    html.Span(
+                        "ESC",
+                        id="cmd-close-btn",
+                        style={
+                            "color":        C["text_dim"],
+                            "fontFamily":   FONT_MONO,
+                            "fontSize":     "9px",
+                            "border":       f"1px solid {C['border']}",
+                            "borderRadius": "2px",
+                            "padding":      "2px 6px",
+                            "cursor":       "pointer",
+                            "flexShrink":   "0",
+                            "userSelect":   "none",
+                        },
+                    ),
+                ], style={
+                    "display":     "flex",
+                    "alignItems":  "center",
+                    "padding":     "14px 18px",
+                    "borderBottom":f"1px solid {C['border']}",
+                }),
+
+                # Suggestions list
+                html.Div(
+                    id="cmd-suggestions",
+                    children=[],
+                    style={"padding": "8px 0", "minHeight": "40px"},
+                ),
+
+                # Footer hint
+                html.Div([
+                    html.Span("↑↓ navigate  ·  ↵ execute  ·  ESC close", style={
+                        "color":       C["text_dim"],
+                        "fontFamily":  FONT_MONO,
+                        "fontSize":    "9px",
+                        "letterSpacing":"0.08em",
+                    }),
+                ], style={
+                    "padding":    "8px 18px",
+                    "borderTop":  f"1px solid {C['border']}",
+                }),
+            ], style={
+                "position":    "fixed",
+                "top":         "20%",
+                "left":        "50%",
+                "transform":   "translateX(-50%)",
+                "width":       "640px",
+                "maxWidth":    "92vw",
+                "background":  C["bg_panel"],
+                "border":      "1px solid var(--accent)",
+                "borderRadius":"6px",
+                "zIndex":      "10000",
+                "boxShadow":   "0 24px 80px rgba(0,0,0,0.6)",
+            }),
+        ],
+        style={"display": "none"},   # hidden until toggled
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIGNALS TAB  —  Market signal scanner
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _signal_card(title: str, items: list, accent: str = "var(--accent)") -> html.Div:
+    """Render a signal category card with a list of ticker results."""
+    if not items:
+        rows = [html.Div("No signals detected", style={
+            "color": C["text_dim"], "fontFamily": FONT_MONO,
+            "fontSize": "11px", "padding": "4px 0",
+        })]
+    else:
+        rows = []
+        for item in items[:6]:
+            sym     = item.get("symbol", "")
+            chg_pct = item.get("chg_pct", 0.0)
+            rsi_val = item.get("rsi")
+            vol_r   = item.get("vol_ratio", 1.0)
+            sign    = "+" if chg_pct >= 0 else ""
+            chg_col = C["green"] if chg_pct >= 0 else C["red"]
+
+            # Build secondary metric label
+            if rsi_val is not None:
+                meta = f"RSI {rsi_val:.0f}"
+            elif vol_r and vol_r > 1.5:
+                meta = f"VOL {vol_r:.1f}×"
+            else:
+                meta = f"{sign}{chg_pct:.2f}%"
+
+            rows.append(html.Div([
+                html.Span(sym, style={
+                    "color":        "var(--accent)",
+                    "fontFamily":   FONT_MONO,
+                    "fontSize":     "11px",
+                    "fontWeight":   "700",
+                    "letterSpacing":"0.08em",
+                    "width":        "60px",
+                    "display":      "inline-block",
+                }),
+                html.Span(f"{sign}{chg_pct:.2f}%", style={
+                    "color":      chg_col,
+                    "fontFamily": FONT_MONO,
+                    "fontSize":   "11px",
+                    "fontWeight": "600",
+                    "width":      "62px",
+                    "display":    "inline-block",
+                }),
+                html.Span(meta, style={
+                    "color":      C["text_secondary"],
+                    "fontFamily": FONT_MONO,
+                    "fontSize":   "10px",
+                }),
+            ], style={"padding": "3px 0", "display": "flex", "alignItems": "center"}))
+
+    return html.Div([
+        html.Div(title, style={
+            **SECTION_TITLE,
+            "color": accent,
+        }),
+        html.Div(rows),
+    ], style={**CARD_STYLE, "minHeight": "130px"})
+
+
+def build_signals_tab() -> html.Div:
+    """
+    Signals scanner tab shell.
+    Cards are populated by the update_signals_tab() callback.
+    """
+    return html.Div([
+        # Header
+        html.Div([
+            html.Span("⊛ ", style={"color": "var(--accent)", "fontSize": "14px"}),
+            html.Span("MARKET SIGNAL SCANNER", style={
+                "color": C["text_white"], "fontFamily": FONT_MONO,
+                "fontSize": "12px", "fontWeight": "900", "letterSpacing": "0.12em",
+            }),
+            html.Span("  ·  S&P 500 + NASDAQ 100 universe", style={
+                "color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "10px",
+            }),
+            # Scan status badge
+            html.Span(id="signals-status-badge", children="LOADING", style={
+                "color":        C["text_dim"],
+                "fontFamily":   FONT_MONO,
+                "fontSize":     "9px",
+                "border":       f"1px solid {C['border']}",
+                "borderRadius": "2px",
+                "padding":      "2px 8px",
+                "marginLeft":   "auto",
+                "letterSpacing":"0.08em",
+            }),
+            html.Button("⟳ SCAN NOW", id="signals-scan-btn", n_clicks=0, style={
+                "background":   "transparent",
+                "border":       "1px solid var(--accent)",
+                "color":        "var(--accent)",
+                "fontFamily":   FONT_MONO,
+                "fontSize":     "9px",
+                "padding":      "4px 12px",
+                "cursor":       "pointer",
+                "borderRadius": "2px",
+                "letterSpacing":"0.08em",
+                "marginLeft":   "10px",
+            }),
+        ], style={
+            "display":      "flex",
+            "alignItems":   "center",
+            "marginBottom": "14px",
+        }),
+
+        # dcc.Interval to poll scan results
+        dcc.Interval(id="signals-poll-interval", interval=30_000, n_intervals=0),
+
+        # Signal cards grid — populated by callback
+        html.Div(id="signals-cards-grid", children=[
+            # Placeholder skeleton cards
+            _signal_card("RSI OVERSOLD",    [], accent=C["green"]),
+            _signal_card("RSI OVERBOUGHT",  [], accent=C["red"]),
+            _signal_card("MACD BULLISH",    [], accent=C["blue"]),
+            _signal_card("MACD BEARISH",    [], accent=C["red"]),
+            _signal_card("20D BREAKOUT",    [], accent="var(--accent)"),
+            _signal_card("50D BREAKOUT",    [], accent=C["purple"]),
+            _signal_card("UNUSUAL VOLUME",  [], accent=C["cyan"]),
+            _signal_card("STRONG REL STR",  [], accent=C["green"]),
+        ], style={
+            "display":               "grid",
+            "gridTemplateColumns":   "repeat(auto-fill, minmax(280px, 1fr))",
+            "gap":                   "10px",
+        }),
+    ], style={"padding": "14px 20px"})
+
+
+def build_signals_cards(scan_results: dict) -> list:
+    """
+    Build the list of signal cards from a scan_results dict (from signal_engine).
+    Called inside the callback to populate signals-cards-grid.
+    """
+    categories = [
+        ("RSI OVERSOLD",   "rsi_oversold",   C["green"]),
+        ("RSI OVERBOUGHT", "rsi_overbought",  C["red"]),
+        ("MACD BULLISH",   "macd_bullish",    C["blue"]),
+        ("MACD BEARISH",   "macd_bearish",    C["red"]),
+        ("20D BREAKOUT",   "breakout_20",     "var(--accent)"),
+        ("50D BREAKOUT",   "breakout_50",     C["purple"]),
+        ("UNUSUAL VOLUME", "unusual_volume",  C["cyan"]),
+        ("STRONG REL STR", "strong_rs",       C["green"]),
+    ]
+    cards = []
+    for title, key, accent in categories:
+        items = scan_results.get(key, [])
+        cards.append(_signal_card(title, items, accent=accent))
+    return cards
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORRELATIONS TAB  —  Cross-asset correlation dashboard
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_correlations_tab() -> html.Div:
+    """
+    Correlations tab shell.
+    Three panels populated by the update_correlations_tab() callback.
+    """
+    _panel = {
+        "background":   C["bg_panel"],
+        "border":       f"1px solid {C['border']}",
+        "borderRadius": "4px",
+        "padding":      "14px 16px",
+        "marginBottom": "12px",
+    }
+
+    return html.Div([
+        # Header
+        html.Div([
+            html.Span("⧉ ", style={"color": "var(--accent)", "fontSize": "14px"}),
+            html.Span("CROSS-ASSET CORRELATIONS", style={
+                "color": C["text_white"], "fontFamily": FONT_MONO,
+                "fontSize": "12px", "fontWeight": "900", "letterSpacing": "0.12em",
+            }),
+            html.Span("  ·  SPY · QQQ · BTC · ETH · GLD · DXY · TLT · OIL", style={
+                "color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "10px",
+            }),
+            # Period selector
+            html.Div([
+                *[html.Button(p, id={"type": "corr-period-btn", "index": p}, n_clicks=0,
+                    style={
+                        "background":   "var(--accent)" if p == "1Y" else "transparent",
+                        "color":        C["bg"] if p == "1Y" else C["text_secondary"],
+                        "border":       "1px solid var(--accent)" if p == "1Y" else f"1px solid {C['border']}",
+                        "fontFamily":   FONT_MONO,
+                        "fontSize":     "9px",
+                        "padding":      "3px 10px",
+                        "cursor":       "pointer",
+                        "borderRadius": "2px",
+                        "letterSpacing":"0.08em",
+                    })
+                for p in ["3M", "6M", "1Y", "2Y"]],
+            ], style={"display": "flex", "gap": "6px", "marginLeft": "auto"}),
+        ], style={
+            "display":      "flex",
+            "alignItems":   "center",
+            "marginBottom": "14px",
+            "flexWrap":     "wrap",
+            "gap":          "8px",
+        }),
+
+        # Row 1: Correlation matrix heatmap
+        html.Div([
+            html.Div("CORRELATION MATRIX", style=SECTION_TITLE),
+            dcc.Graph(id="corr-heatmap", config={"displayModeBar": False},
+                      style={"height": "360px"}),
+        ], style=_panel),
+
+        # Row 2: Rolling correlation + pair explorer (side by side)
+        dbc.Row([
+            dbc.Col([
+                html.Div([
+                    html.Div("ROLLING 30D CORRELATION", style=SECTION_TITLE),
+                    # Pair selector
+                    html.Div([
+                        html.Span("ASSET A", style=LABEL_STYLE),
+                        dcc.Dropdown(
+                            id="corr-asset-a",
+                            options=[
+                                {"label": "S&P 500",     "value": "SPY"},
+                                {"label": "NASDAQ 100",  "value": "QQQ"},
+                                {"label": "Bitcoin",     "value": "BTC-USD"},
+                                {"label": "Ethereum",    "value": "ETH-USD"},
+                                {"label": "Gold",        "value": "GLD"},
+                                {"label": "US Dollar",   "value": "DX-Y.NYB"},
+                                {"label": "20Y Treasury","value": "TLT"},
+                                {"label": "Crude Oil",   "value": "CL=F"},
+                            ],
+                            value="BTC-USD",
+                            clearable=False,
+                            className="bloomberg-dropdown",
+                            style={"background": C["bg_panel"], "color": C["text_primary"],
+                                   "fontFamily": FONT_MONO, "fontSize": "11px",
+                                   "marginBottom": "8px"},
+                        ),
+                        html.Span("vs ASSET B", style={**LABEL_STYLE, "marginLeft": "10px"}),
+                        dcc.Dropdown(
+                            id="corr-asset-b",
+                            options=[
+                                {"label": "S&P 500",     "value": "SPY"},
+                                {"label": "NASDAQ 100",  "value": "QQQ"},
+                                {"label": "Bitcoin",     "value": "BTC-USD"},
+                                {"label": "Gold",        "value": "GLD"},
+                                {"label": "US Dollar",   "value": "DX-Y.NYB"},
+                                {"label": "20Y Treasury","value": "TLT"},
+                                {"label": "Crude Oil",   "value": "CL=F"},
+                            ],
+                            value="SPY",
+                            clearable=False,
+                            className="bloomberg-dropdown",
+                            style={"background": C["bg_panel"], "color": C["text_primary"],
+                                   "fontFamily": FONT_MONO, "fontSize": "11px"},
+                        ),
+                    ], style={"display": "flex", "alignItems": "center", "gap": "8px",
+                               "marginBottom": "10px", "flexWrap": "wrap"}),
+                    dcc.Graph(id="corr-rolling-chart", config={"displayModeBar": False},
+                              style={"height": "260px"}),
+                ], style=_panel),
+            ], width=8),
+            dbc.Col([
+                html.Div([
+                    html.Div("REGIME SHIFTS  (90D vs 30D)", style=SECTION_TITLE),
+                    html.Div(id="corr-regime-table", children=[]),
+                ], style={**_panel, "minHeight": "310px"}),
+            ], width=4),
+        ], className="g-2"),
+    ], style={"padding": "14px 20px"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MACRO INTELLIGENCE PANEL  —  additions to Intelligence tab
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_macro_panel() -> html.Div:
+    """
+    Macro intelligence panel — displayed as an extra section in the Intelligence tab.
+    Five sub-panels: yield curve, inflation expectations, credit spreads,
+    dollar liquidity, Fed balance sheet.
+    Populated by update_macro_panel() callback.
+    """
+    _sub = {
+        "background":   C["bg_panel"],
+        "border":       f"1px solid {C['border']}",
+        "borderRadius": "4px",
+        "padding":      "12px 14px",
+    }
+
+    return html.Div([
+        # Sub-header
+        html.Div([
+            html.Span("▲ ", style={"color": "var(--accent)", "fontSize": "12px"}),
+            html.Span("MACRO INTELLIGENCE", style={
+                "color": C["text_white"], "fontFamily": FONT_MONO,
+                "fontSize": "11px", "fontWeight": "900", "letterSpacing": "0.12em",
+            }),
+            html.Span("  ·  FRED · Treasury · Fed Reserve", style={
+                "color": C["text_dim"], "fontFamily": FONT_MONO, "fontSize": "9px",
+            }),
+        ], style={"display": "flex", "alignItems": "center", "marginBottom": "12px"}),
+
+        # Row 1: Yield curve + Inflation expectations
+        dbc.Row([
+            dbc.Col([
+                html.Div([
+                    html.Div("YIELD CURVE", style=SECTION_TITLE),
+                    dcc.Graph(id="macro-yield-curve", config={"displayModeBar": False},
+                              style={"height": "220px"}),
+                ], style=_sub),
+            ], width=6),
+            dbc.Col([
+                html.Div([
+                    html.Div("INFLATION EXPECTATIONS (10Y BEI)", style=SECTION_TITLE),
+                    dcc.Graph(id="macro-inflation", config={"displayModeBar": False},
+                              style={"height": "220px"}),
+                ], style=_sub),
+            ], width=6),
+        ], className="g-2", style={"marginBottom": "10px"}),
+
+        # Row 2: Credit spreads + Dollar liquidity + Fed balance sheet
+        dbc.Row([
+            dbc.Col([
+                html.Div([
+                    html.Div("HY CREDIT SPREADS (OAS)", style=SECTION_TITLE),
+                    dcc.Graph(id="macro-credit", config={"displayModeBar": False},
+                              style={"height": "200px"}),
+                ], style=_sub),
+            ], width=4),
+            dbc.Col([
+                html.Div([
+                    html.Div("FED BALANCE SHEET  ($ Trn)", style=SECTION_TITLE),
+                    dcc.Graph(id="macro-fed-bs", config={"displayModeBar": False},
+                              style={"height": "200px"}),
+                ], style=_sub),
+            ], width=4),
+            dbc.Col([
+                html.Div([
+                    html.Div("DOLLAR LIQUIDITY  ($ Trn)", style=SECTION_TITLE),
+                    dcc.Graph(id="macro-liquidity", config={"displayModeBar": False},
+                              style={"height": "200px"}),
+                ], style=_sub),
+            ], width=4),
+        ], className="g-2"),
+    ], style={
+        "background":   C["bg"],
+        "border":       f"1px solid {C['border']}",
+        "borderRadius": "4px",
+        "padding":      "14px 16px",
+        "marginTop":    "14px",
+    })

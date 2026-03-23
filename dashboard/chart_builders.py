@@ -574,69 +574,122 @@ def _hex_to_rgb(hex_color: str) -> str:
 # Sector Heatmap — S&P 500 sector ETF performance treemap
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_sector_heatmap(sector_data: list) -> go.Figure:
+def build_sector_heatmap(data: dict) -> go.Figure:
     """
-    Treemap where each tile is an S&P 500 sector ETF.
-    Tiles are equal-sized; colour encodes today's % change (red → green).
+    Flat treemap — 11 S&P 500 sector tiles sized by market-cap weight.
+
+    Sectors are NOT split into sub-tiles so every tile is large enough to read.
+    Clicking a tile triggers the existing drill-down panel for top holdings.
+
+    Parameters
+    ----------
+    data : dict with key 'sectors' (list of {symbol, name, chg_pct, price, weight}).
+           Also accepts a plain list for backward-compat.
     """
-    if not sector_data:
+    sectors = data.get("sectors", []) if isinstance(data, dict) else data
+    if not sectors:
         return _empty_chart("No sector data available")
 
-    names   = [d["name"]    for d in sector_data]
-    symbols = [d["symbol"]  for d in sector_data]
-    pcts    = [d["chg_pct"] for d in sector_data]
+    FONT = "'IBM Plex Mono', 'Courier New', monospace"
 
-    # Text shown inside each tile: sector name, ticker, % change
-    tile_text = [
-        f"<b>{name}</b><br>{sym}<br>{'+'if p>=0 else ''}{p:.2f}%"
-        for name, sym, p in zip(names, symbols, pcts)
-    ]
+    # Short display names so labels fit smaller tiles
+    _SHORT = {
+        "Technology":            "TECHNOLOGY",
+        "Financials":            "FINANCIALS",
+        "Health Care":           "HEALTH CARE",
+        "Communication Services":"COMM SVCS",
+        "Consumer Discretionary":"CONS DISCR",
+        "Industrials":           "INDUSTRIALS",
+        "Energy":                "ENERGY",
+        "Consumer Staples":      "CONS STAPLES",
+        "Materials":             "MATERIALS",
+        "Real Estate":           "REAL ESTATE",
+        "Utilities":             "UTILITIES",
+    }
 
-    # Symmetric colour range — scale to worst mover so extremes are vivid
-    max_abs = max((abs(p) for p in pcts), default=2.0)
-    climit  = max(max_abs, 0.5)
+    labels   = []
+    values   = []
+    colors   = []
+    customs  = []
+    hovers   = []
 
-    # Red → dark neutral → green  (Bloomberg palette)
+    for sec in sectors:
+        sym    = sec["symbol"]
+        name   = sec.get("name", sym)
+        pct    = sec.get("chg_pct", 0.0)
+        price  = sec.get("price", 0.0)
+        weight = sec.get("weight", 10.0)
+        sign   = "+" if pct >= 0 else ""
+        short  = _SHORT.get(name, name.upper())
+
+        # Three-line label: short name / ETF symbol / % change
+        labels.append(
+            f"{short}<br>"
+            f"<span style='opacity:0.7'>{sym}</span><br>"
+            f"<b>{sign}{pct:.2f}%</b>"
+        )
+        values.append(weight)
+        colors.append(pct)
+        customs.append(sym)
+        hovers.append(
+            f"<b>{name}</b>  ({sym})<br>"
+            f"Price:  ${price:,.2f}<br>"
+            f"Change: {sign}{pct:.2f}%<br>"
+            f"Weight: ~{weight:.1f}% of S&P 500<br>"
+            f"<i>Click to see top holdings</i>"
+        )
+
+    # Symmetric colour range — vivid even on small moves
+    max_abs = max((abs(p) for p in colors), default=1.0)
+    climit  = max(max_abs * 1.1, 0.5)
+
     colorscale = [
-        [0.00, "#7f1d1d"],   # deep red
-        [0.35, C["red"]],    # red
-        [0.45, C["bg_panel"]],
-        [0.55, C["bg_panel"]],
-        [0.65, C["green_dim"]],
-        [1.00, "#14532d"],   # deep green
+        [0.00, "#6b0f0f"],
+        [0.28, C["red"]],
+        [0.44, "#111d30"],
+        [0.56, "#111d30"],
+        [0.72, C["green_dim"]],
+        [1.00, "#0a3d1f"],
     ]
 
     fig = go.Figure(go.Treemap(
-        labels        = tile_text,                # formatted HTML — displayed in tile
-        customdata    = symbols,                  # clean ETF symbol — read in clickData
-        parents       = [""] * len(sector_data),
-        values        = [1] * len(sector_data),   # equal tile size
+        labels        = labels,
+        parents       = [""] * len(sectors),
+        values        = values,
+        customdata    = customs,
+        text          = hovers,
         marker        = dict(
-            colors    = pcts,
-            colorscale= colorscale,
-            cmin      = -climit,
-            cmax      =  climit,
-            showscale = False,
-            line      = dict(width=2, color=C["bg"]),
+            colors     = colors,
+            colorscale = colorscale,
+            cmin       = -climit,
+            cmax       =  climit,
+            showscale  = True,
+            colorbar   = dict(
+                thickness    = 10,
+                len          = 0.9,
+                tickformat   = "+.1f",
+                ticksuffix   = "%",
+                tickfont     = dict(family=FONT, size=9, color=C["text_secondary"]),
+                outlinewidth = 0,
+                x            = 1.0,
+            ),
+            line       = dict(width=2, color=C["bg"]),
         ),
         textfont      = dict(
-            family    = "'IBM Plex Mono', 'Courier New', monospace",
-            size      = 12,
+            family    = FONT,
+            size      = 14,
             color     = C["text_white"],
         ),
-        hovertemplate = "<b>%{customdata}</b><extra></extra>",
+        hovertemplate = "%{text}<extra></extra>",
         pathbar       = dict(visible=False),
-        tiling        = dict(pad=2),
+        tiling        = dict(pad=3, squarifyratio=1),
     ))
 
     fig.update_layout(
-        margin         = dict(t=0, l=0, r=0, b=0),
-        paper_bgcolor  = C["bg_panel"],
-        plot_bgcolor   = C["bg_panel"],
-        font           = dict(
-            family     = "'IBM Plex Mono', 'Courier New', monospace",
-            color      = C["text_primary"],
-        ),
+        margin        = dict(t=0, l=0, r=16, b=0),
+        paper_bgcolor = C["bg_panel"],
+        plot_bgcolor  = C["bg_panel"],
+        font          = dict(family=FONT, color=C["text_white"]),
     )
     return fig
 

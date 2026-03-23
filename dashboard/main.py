@@ -28,6 +28,14 @@ import intelligence as intel
 import quantlab_ui as ql_ui
 from quantlab.runner import QuantLabRunner
 
+# ── New feature modules ───────────────────────────────────────────────────────
+import command_parser
+import signal_engine
+import correlation_engine
+import alert_engine
+import realtime_data
+from services import macro_service
+
 # ─────────────────────────────────────────────────────────────────────────────
 # App init
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,6 +199,8 @@ def load_profile_on_startup(n_intervals, current_settings):
     Input("nav-btn-intelligence", "n_clicks"),
     Input("nav-btn-calendar",     "n_clicks"),
     Input("nav-btn-news",         "n_clicks"),
+    Input("nav-btn-signals",      "n_clicks"),
+    Input("nav-btn-correlations", "n_clicks"),
     Input("nav-btn-settings",     "n_clicks"),
     prevent_initial_call=True,
 )
@@ -210,11 +220,14 @@ def nav_tab_clicked(*_):
     Output("nav-btn-intelligence", "style"),
     Output("nav-btn-calendar",     "style"),
     Output("nav-btn-news",         "style"),
+    Output("nav-btn-signals",      "style"),
+    Output("nav-btn-correlations", "style"),
     Output("nav-btn-settings",     "style"),
     Input("main-tabs", "value"),
 )
 def update_nav_styles(active_tab):
-    vals = ["portfolio", "deepdive", "market", "quantlab", "intelligence", "calendar", "news", "settings"]
+    vals = ["portfolio", "deepdive", "market", "quantlab", "intelligence",
+            "calendar", "news", "signals", "correlations", "settings"]
     return [
         ly.NAV_BTN_ACTIVE_STYLE if v == active_tab else ly.NAV_BTN_STYLE
         for v in vals
@@ -470,6 +483,10 @@ def render_page(tab, settings, selected_ticker):
         return ly.build_calendar_tab()
     elif tab == "news":
         return ly.build_newsfeed_tab()
+    elif tab == "signals":
+        return ly.build_signals_tab()
+    elif tab == "correlations":
+        return ly.build_correlations_tab()
     elif tab == "settings":
         return ly.build_settings_tab(settings or DEFAULT_SETTINGS)
     return ly.build_portfolio_tab()
@@ -976,7 +993,6 @@ def update_deepdive(ticker, period, ts, settings):
     Output("market-bonds",         "children"),
     Output("market-commodities",   "children"),
     Output("market-fx",            "children"),
-    Output("sector-heatmap-graph", "figure"),
     Output("fear-greed-gauge",     "figure"),
     Output("fear-greed-labels",    "children"),
     Input("store-refresh-ts",      "data"),
@@ -1006,14 +1022,6 @@ def update_market_monitor(ts):
                            style={"color": C["red"], "fontFamily": "'IBM Plex Mono'",
                                   "fontSize": "11px"}))
 
-    # Sector heatmap
-    try:
-        sector_data = dm.get_sector_data()
-        sector_fig  = cb.build_sector_heatmap(sector_data)
-    except Exception:
-        sector_fig  = go.Figure()
-    results.append(sector_fig)
-
     # Fear & Greed gauge
     try:
         fng     = dm.get_fear_greed()
@@ -1040,6 +1048,45 @@ def update_market_monitor(ts):
     results.append(fng_fig)
     results.append(fng_labels)
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sector heatmap — dedicated callback (period-aware, separate from market data)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("heatmap-period-store", "data"),
+    Input({"type": "heatmap-period-btn", "index": ALL}, "n_clicks"),
+    State("heatmap-period-store", "data"),
+    prevent_initial_call=True,
+)
+def update_heatmap_period(n_clicks_list, current):
+    """Store the selected period when a period toggle button is clicked."""
+    ctx = callback_context
+    if not ctx.triggered:
+        return current
+    prop = ctx.triggered[0]["prop_id"]
+    import json as _json
+    try:
+        return _json.loads(prop.split(".")[0]).get("index", current)
+    except Exception:
+        return current
+
+
+@app.callback(
+    Output("sector-heatmap-graph", "figure"),
+    Input("heatmap-period-store",  "data"),
+    Input("store-refresh-ts",      "data"),
+    prevent_initial_call=False,
+)
+def update_sector_heatmap(period, ts):
+    """Render the hierarchical sector heatmap for the selected period."""
+    try:
+        data = dm.get_sector_heatmap_data(period or "1D")
+        return cb.build_sector_heatmap(data)
+    except Exception:
+        traceback.print_exc()
+        return go.Figure()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1085,6 +1132,27 @@ def show_sector_drilldown(click_data):
 
     panel = ly.build_sector_drill_down(etf_symbol, sector_name, holdings)
     return panel, {"display": "block"}
+
+
+# Auto-scroll drill-down into view after it appears
+app.clientside_callback(
+    """
+    function(style) {
+        if (style && style.display === 'block') {
+            var el = document.getElementById('sector-drill-down');
+            if (el) {
+                setTimeout(function() {
+                    el.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+                }, 80);
+            }
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sector-drill-down", "id"),
+    Input("sector-drill-down", "style"),
+    prevent_initial_call=True,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1870,6 +1938,605 @@ app.clientside_callback(
     Output("store-notifications", "id"),   # dummy output
     Input("store-notifications",  "data"),
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMAND PALETTE  —  ⌘K / Ctrl+K Bloomberg-style command bar
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Clientside callback: toggle overlay visibility on ⌘K / Ctrl+K, close on ESC
+app.clientside_callback(
+    """
+    function(n_close, n_kbd) {
+        // Listen for Cmd/Ctrl+K to open, ESC to close
+        if (!window._cmdPaletteListenerAdded) {
+            window._cmdPaletteListenerAdded = true;
+            document.addEventListener('keydown', function(e) {
+                var overlay = document.getElementById('cmd-palette-overlay');
+                if (!overlay) return;
+                if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                    e.preventDefault();
+                    var hidden = overlay.style.display === 'none' || overlay.style.display === '';
+                    overlay.style.display = hidden ? 'block' : 'none';
+                    if (hidden) {
+                        setTimeout(function() {
+                            var inp = document.getElementById('cmd-input');
+                            if (inp) inp.focus();
+                        }, 50);
+                    }
+                }
+                if (e.key === 'Escape') {
+                    overlay.style.display = 'none';
+                }
+            });
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("cmd-palette-overlay", "id"),   # dummy output — just needs to fire
+    Input("cmd-close-btn", "n_clicks"),
+    Input("cmd-palette-backdrop", "n_clicks"),
+    prevent_initial_call=False,
+)
+
+
+@app.callback(
+    Output("cmd-suggestions", "children"),
+    Input("cmd-input", "value"),
+    prevent_initial_call=False,
+)
+def update_cmd_suggestions(query):
+    """Update fuzzy-matched suggestions as the user types."""
+    from dash import html as _html
+    FONT = "'IBM Plex Mono', monospace"
+
+    matches = command_parser.fuzzy_search(query or "")
+    if not matches:
+        return [_html.Div("No matching commands", style={
+            "color": C["text_dim"], "fontFamily": FONT, "fontSize": "11px",
+            "padding": "10px 18px",
+        })]
+
+    rows = []
+    for i, item in enumerate(matches):
+        rows.append(_html.Div([
+            _html.Span("❯ ", style={
+                "color": "var(--accent)", "fontFamily": FONT,
+                "fontSize": "11px", "marginRight": "6px",
+            }),
+            _html.Span(item["cmd"], style={
+                "color": C["text_white"], "fontFamily": FONT,
+                "fontSize": "12px", "fontWeight": "700",
+                "letterSpacing": "0.06em", "marginRight": "14px",
+                "minWidth": "180px", "display": "inline-block",
+            }),
+            _html.Span(item["desc"], style={
+                "color": C["text_secondary"], "fontFamily": FONT, "fontSize": "11px",
+            }),
+        ], id={"type": "cmd-suggestion-row", "index": item["cmd"]},
+           n_clicks=0,
+           style={
+               "padding":    "8px 18px",
+               "cursor":     "pointer",
+               "background": C["bg_hover"] if i == 0 else "transparent",
+               "display":    "flex",
+               "alignItems": "center",
+           }))
+
+    return rows
+
+
+@app.callback(
+    Output("main-tabs",         "value",  allow_duplicate=True),
+    Output("selected-ticker",   "data",   allow_duplicate=True),
+    Output("cmd-palette-overlay","style", allow_duplicate=True),
+    Input({"type": "cmd-suggestion-row", "index": ALL}, "n_clicks"),
+    Input("cmd-input", "n_submit"),
+    State("cmd-input", "value"),
+    prevent_initial_call=True,
+)
+def execute_command(suggestion_clicks, n_submit, cmd_text):
+    """Execute a command from the palette — route to the correct tab and ticker."""
+    ctx = callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    prop = ctx.triggered[0]["prop_id"]
+
+    # Determine the raw command string
+    raw = ""
+    if "cmd-suggestion-row" in prop:
+        # Extract the "index" value from the pattern-match prop_id JSON
+        import json as _json
+        try:
+            id_part = prop.split(".")[0]
+            raw = _json.loads(id_part).get("index", "")
+        except Exception:
+            raw = ""
+    elif "n_submit" in prop:
+        raw = cmd_text or ""
+
+    if not raw:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    parsed = command_parser.parse(raw)
+    if parsed is None:
+        return dash.no_update, dash.no_update, dash.no_update
+
+    hidden_style = {"display": "none"}
+    ticker = parsed.ticker or dash.no_update
+
+    return parsed.tab, ticker, hidden_style
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIGNALS TAB  —  Market signal scanner callbacks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("signals-cards-grid",  "children"),
+    Output("signals-status-badge","children"),
+    Input("signals-poll-interval","n_intervals"),
+    Input("signals-scan-btn",     "n_clicks"),
+    Input("user-settings",        "data"),
+    prevent_initial_call=False,
+)
+def update_signals_tab(n_intervals, n_clicks, settings):
+    """
+    Populate the signals tab cards from the background scanner's cached results.
+    If the user clicks 'SCAN NOW', triggers an immediate foreground scan
+    (runs in a short background thread so it doesn't block the callback).
+    """
+    ctx = callback_context
+    triggered = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
+
+    # Resolve current portfolio tickers
+    extra = list(PORTFOLIO_TICKERS)
+    try:
+        if settings:
+            port_key = settings.get("active_portfolio", "default")
+            t_list   = settings.get("portfolios", {}).get(port_key, {}).get("tickers", [])
+            if t_list:
+                extra = t_list
+    except Exception:
+        pass
+
+    # On explicit "SCAN NOW" click, kick off a foreground scan thread
+    if "signals-scan-btn" in triggered:
+        def _immediate_scan():
+            signal_engine.scan_universe(extra_tickers=extra)
+        t = threading.Thread(target=_immediate_scan, daemon=True)
+        t.start()
+        t.join(timeout=45)   # wait up to 45s so the results are ready
+
+    results = signal_engine.get_scan_results()
+    cards   = ly.build_signals_cards(results)
+
+    last_ts = signal_engine.get_last_scan_time()
+    running = signal_engine.is_scan_running()
+
+    if running:
+        badge = "SCANNING…"
+    elif last_ts:
+        badge = f"LAST SCAN  {last_ts[-8:]}"   # show HH:MM:SS
+    else:
+        badge = "PENDING"
+
+    return cards, badge
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORRELATIONS TAB  —  Cross-asset correlation callbacks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("corr-period-store", "data"),
+    Input({"type": "corr-period-btn", "index": ALL}, "n_clicks"),
+    State("corr-period-store", "data"),
+    prevent_initial_call=True,
+)
+def update_corr_period(n_clicks_list, current_period):
+    """Update the selected correlation period when a period button is clicked."""
+    ctx = callback_context
+    if not ctx.triggered:
+        return current_period
+    prop = ctx.triggered[0]["prop_id"]
+    import json as _json
+    try:
+        id_part = prop.split(".")[0]
+        period  = _json.loads(id_part).get("index", current_period)
+    except Exception:
+        period = current_period
+    return period
+
+
+# Map UI period labels to yfinance period strings (correlations tab only)
+_CORR_PERIOD_MAP = {"3M": "3mo", "6M": "6mo", "1Y": "1y", "2Y": "2y"}
+
+
+@app.callback(
+    Output("corr-heatmap",       "figure"),
+    Output("corr-rolling-chart", "figure"),
+    Output("corr-regime-table",  "children"),
+    Input("corr-period-store",   "data"),
+    Input("corr-asset-a",        "value"),
+    Input("corr-asset-b",        "value"),
+    prevent_initial_call=False,
+)
+def update_correlations_tab(period_label, asset_a, asset_b):
+    """Compute and render all correlation charts for the Correlations tab."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    from dash import html as _html
+
+    period = _CORR_PERIOD_MAP.get(period_label or "1Y", "1y")
+
+    # ── Correlation matrix heatmap ────────────────────────────────────────────
+    corr_matrix = correlation_engine.compute_correlation_matrix(period=period)
+    if corr_matrix is not None:
+        z     = corr_matrix.values.tolist()
+        xlbls = list(corr_matrix.columns)
+        ylbls = list(corr_matrix.index)
+        text  = [[f"{v:.2f}" for v in row] for row in z]
+
+        heatmap_fig = go.Figure(go.Heatmap(
+            z=z, x=xlbls, y=ylbls, text=text,
+            texttemplate="%{text}",
+            colorscale=[
+                [0.0,  "#ef4444"],   # -1 red
+                [0.5,  C["bg_panel"]],
+                [1.0,  "#22c55e"],   # +1 green
+            ],
+            zmid=0, zmin=-1, zmax=1,
+            showscale=True,
+            colorbar=dict(
+                thickness=10, len=0.9,
+                tickfont=dict(family="IBM Plex Mono", size=9, color=C["text_secondary"]),
+                tickformat=".1f",
+            ),
+        ))
+        heatmap_fig.update_layout(
+            paper_bgcolor=C["bg_chart"], plot_bgcolor=C["bg_chart"],
+            margin=dict(l=10, r=10, t=10, b=10),
+            font=dict(family="IBM Plex Mono", color=C["text_secondary"], size=10),
+            xaxis=dict(tickfont=dict(size=9), gridcolor="transparent"),
+            yaxis=dict(tickfont=dict(size=9), gridcolor="transparent"),
+        )
+    else:
+        heatmap_fig = go.Figure()
+        heatmap_fig.update_layout(
+            paper_bgcolor=C["bg_chart"], plot_bgcolor=C["bg_chart"],
+            annotations=[dict(text="Loading correlation data…", x=0.5, y=0.5,
+                              xref="paper", yref="paper", showarrow=False,
+                              font=dict(color=C["text_dim"], family="IBM Plex Mono", size=12))],
+        )
+
+    # ── Rolling correlation chart ─────────────────────────────────────────────
+    rolling_df = correlation_engine.compute_rolling_correlation(
+        sym_a=asset_a or "BTC-USD",
+        sym_b=asset_b or "SPY",
+        window=30,
+        period=period,
+    )
+    if rolling_df is not None and not rolling_df.empty:
+        a_label = correlation_engine.ASSET_LABELS.get(asset_a or "BTC-USD", asset_a)
+        b_label = correlation_engine.ASSET_LABELS.get(asset_b or "SPY", asset_b)
+
+        rolling_fig = go.Figure()
+        rolling_fig.add_trace(go.Scatter(
+            x=rolling_df["date"], y=rolling_df["correlation"],
+            mode="lines", name=f"{a_label} vs {b_label}",
+            line=dict(color="var(--accent)", width=1.5),
+            fill="tozeroy",
+            fillcolor=f"rgba(251,191,36,0.08)",
+        ))
+        rolling_fig.add_hline(y=0, line_color=C["border"], line_width=1)
+        rolling_fig.add_hline(y=0.7,  line_dash="dot", line_color=C["green"], line_width=1,
+                               annotation_text="Strong +", annotation_font_size=9)
+        rolling_fig.add_hline(y=-0.7, line_dash="dot", line_color=C["red"],   line_width=1,
+                               annotation_text="Strong −", annotation_font_size=9)
+        rolling_fig.update_layout(
+            paper_bgcolor=C["bg_chart"], plot_bgcolor=C["bg_chart"],
+            margin=dict(l=40, r=10, t=10, b=30),
+            font=dict(family="IBM Plex Mono", color=C["text_secondary"], size=9),
+            yaxis=dict(range=[-1.05, 1.05], gridcolor=C["border"],
+                       zeroline=False, tickfont=dict(size=8)),
+            xaxis=dict(gridcolor="transparent", tickfont=dict(size=8)),
+            showlegend=False,
+        )
+    else:
+        rolling_fig = go.Figure()
+        rolling_fig.update_layout(
+            paper_bgcolor=C["bg_chart"], plot_bgcolor=C["bg_chart"],
+            annotations=[dict(text="Fetching data…", x=0.5, y=0.5,
+                              xref="paper", yref="paper", showarrow=False,
+                              font=dict(color=C["text_dim"], family="IBM Plex Mono", size=11))],
+        )
+
+    # ── Regime shift table ────────────────────────────────────────────────────
+    change_df = correlation_engine.compute_correlation_change()
+    regime_rows = []
+    if change_df is not None and not change_df.empty:
+        for _, row in change_df.head(8).iterrows():
+            delta = row["delta"]
+            delta_col = C["green"] if delta > 0 else C["red"]
+            sign = "+" if delta > 0 else ""
+            regime_rows.append(_html.Div([
+                _html.Span(f"{row['asset_a']} / {row['asset_b']}", style={
+                    "color": C["text_primary"], "fontFamily": "IBM Plex Mono",
+                    "fontSize": "9px", "flex": "1",
+                }),
+                _html.Span(f"{row['corr_90d']:+.2f}", style={
+                    "color": C["text_dim"], "fontFamily": "IBM Plex Mono", "fontSize": "9px",
+                    "width": "40px", "textAlign": "right",
+                }),
+                _html.Span("→", style={"color": C["text_dim"], "margin": "0 4px", "fontSize": "9px"}),
+                _html.Span(f"{row['corr_30d']:+.2f}", style={
+                    "color": C["text_primary"], "fontFamily": "IBM Plex Mono",
+                    "fontSize": "9px", "width": "40px", "textAlign": "right",
+                }),
+                _html.Span(f"  {sign}{delta:.2f}", style={
+                    "color": delta_col, "fontFamily": "IBM Plex Mono",
+                    "fontSize": "9px", "fontWeight": "700", "width": "40px",
+                    "textAlign": "right",
+                }),
+            ], style={"display": "flex", "alignItems": "center", "padding": "4px 0",
+                      "borderBottom": f"1px solid {C['border']}"}))
+    else:
+        regime_rows = [_html.Div("Computing…", style={
+            "color": C["text_dim"], "fontFamily": "IBM Plex Mono", "fontSize": "11px",
+        })]
+
+    return heatmap_fig, rolling_fig, regime_rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MACRO INTELLIGENCE PANEL  —  Intelligence tab extension callbacks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("macro-yield-curve", "figure"),
+    Output("macro-inflation",   "figure"),
+    Output("macro-credit",      "figure"),
+    Output("macro-fed-bs",      "figure"),
+    Output("macro-liquidity",   "figure"),
+    Input("main-tabs",          "value"),
+    Input("interval-data",      "n_intervals"),
+    prevent_initial_call=False,
+)
+def update_macro_panel(active_tab, _n):
+    """Populate the macro intelligence charts when the Intelligence tab is active."""
+    import plotly.graph_objects as go
+
+    def _empty(msg="Loading…"):
+        fig = go.Figure()
+        fig.update_layout(
+            paper_bgcolor=C["bg_chart"], plot_bgcolor=C["bg_chart"],
+            margin=dict(l=30, r=10, t=10, b=20),
+            annotations=[dict(text=msg, x=0.5, y=0.5, xref="paper", yref="paper",
+                              showarrow=False,
+                              font=dict(color=C["text_dim"], family="IBM Plex Mono", size=11))],
+        )
+        return fig
+
+    def _base_layout(fig):
+        fig.update_layout(
+            paper_bgcolor=C["bg_chart"], plot_bgcolor=C["bg_chart"],
+            margin=dict(l=40, r=10, t=10, b=30),
+            font=dict(family="IBM Plex Mono", color=C["text_secondary"], size=9),
+            xaxis=dict(gridcolor="transparent", tickfont=dict(size=8)),
+            yaxis=dict(gridcolor=C["border"], zeroline=False, tickfont=dict(size=8)),
+            showlegend=False,
+        )
+        return fig
+
+    if active_tab != "intelligence":
+        no = dash.no_update
+        return no, no, no, no, no
+
+    # Fetch all macro data in parallel
+    macro = macro_service.get_macro_summary()
+
+    # ── Yield curve ──────────────────────────────────────────────────────────
+    yc = macro.get("yield_curve")
+    if yc and yc.get("points"):
+        pts     = yc["points"]
+        tenors  = [p["tenor"] for p in pts]
+        yields  = [p["yield"] for p in pts]
+        inverted = yc.get("inverted", False)
+        line_col = C["red"] if inverted else C["green"]
+        fig_yc = go.Figure()
+        fig_yc.add_trace(go.Scatter(
+            x=tenors, y=yields, mode="lines+markers",
+            line=dict(color=line_col, width=2),
+            marker=dict(color=line_col, size=6),
+        ))
+        _base_layout(fig_yc)
+        if inverted:
+            fig_yc.add_annotation(text="INVERTED", x=0.5, y=0.95, xref="paper", yref="paper",
+                                   font=dict(color=C["red"], size=10, family="IBM Plex Mono"),
+                                   showarrow=False)
+    else:
+        fig_yc = _empty("Fetching yield curve…")
+
+    # ── Inflation expectations ────────────────────────────────────────────────
+    infl = macro.get("inflation")
+    if infl is not None and not infl.empty:
+        fig_infl = go.Figure(go.Scatter(
+            x=infl.index, y=infl.values,
+            mode="lines", line=dict(color=C["amber"], width=1.5),
+            fill="tozeroy", fillcolor="rgba(251,191,36,0.06)",
+        ))
+        _base_layout(fig_infl)
+    else:
+        fig_infl = _empty("Fetching inflation data…")
+
+    # ── Credit spreads ────────────────────────────────────────────────────────
+    credit = macro.get("credit")
+    if credit and credit.get("hy_spread") is not None:
+        hy = credit["hy_spread"]
+        fig_credit = go.Figure(go.Scatter(
+            x=hy.index, y=hy.values,
+            mode="lines", line=dict(color=C["red"], width=1.5),
+            fill="tozeroy", fillcolor="rgba(239,68,68,0.06)",
+        ))
+        _base_layout(fig_credit)
+    else:
+        fig_credit = _empty("Fetching credit data…")
+
+    # ── Fed balance sheet ─────────────────────────────────────────────────────
+    fed_bs = macro.get("fed_bs")
+    if fed_bs is not None and not fed_bs.empty:
+        fig_fed = go.Figure(go.Scatter(
+            x=fed_bs.index, y=fed_bs.values,
+            mode="lines", line=dict(color=C["purple"], width=1.5),
+            fill="tozeroy", fillcolor="rgba(167,139,250,0.06)",
+        ))
+        _base_layout(fig_fed)
+        fig_fed.update_yaxes(tickformat=".1f", ticksuffix="T")
+    else:
+        fig_fed = _empty("Fetching Fed balance sheet…")
+
+    # ── Dollar liquidity ──────────────────────────────────────────────────────
+    liq = macro.get("liquidity")
+    if liq and liq.get("series") is not None:
+        s = liq["series"]
+        fig_liq = go.Figure(go.Scatter(
+            x=s.index, y=s.values,
+            mode="lines", line=dict(color=C["blue"], width=1.5),
+            fill="tozeroy", fillcolor="rgba(56,189,248,0.06)",
+        ))
+        _base_layout(fig_liq)
+        fig_liq.update_yaxes(tickformat=".1f", ticksuffix="T")
+    else:
+        fig_liq = _empty("Fetching liquidity data…")
+
+    return fig_yc, fig_infl, fig_credit, fig_fed, fig_liq
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ALERT ENGINE INTEGRATION  —  sync settings alerts into server engine
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("store-notifications", "data", allow_duplicate=True),
+    Input("interval-data",        "n_intervals"),
+    State("user-settings",        "data"),
+    State("store-notifications",  "data"),
+    prevent_initial_call=True,
+)
+def sync_and_check_alerts(n_intervals, settings, current_notifs):
+    """
+    Every 60-second tick: sync settings alerts into the engine and surface
+    any new triggers as UI notifications.
+    """
+    if not settings:
+        return dash.no_update
+
+    # Sync alert rules from user settings into the alert engine
+    settings_alerts = settings.get("alerts", [])
+    if settings_alerts:
+        alert_engine.sync_alerts_from_settings(settings_alerts)
+
+    # Read recent triggers and format as notifications
+    recent = alert_engine.get_trigger_log(limit=10)
+    existing_ids = {n.get("id") for n in (current_notifs or [])}
+
+    notifs = list(current_notifs or [])
+    for trigger in recent:
+        notif_id = f"alert_{trigger['alert_id']}_{trigger['triggered_at']}"
+        if notif_id not in existing_ids:
+            ticker  = trigger.get("ticker", "")
+            atype   = trigger.get("type", "")
+            price   = trigger.get("price", 0)
+            sign    = "+" if trigger.get("chg_pct", 0) >= 0 else ""
+            chg_pct = trigger.get("chg_pct", 0)
+            notifs.append({
+                "id":  notif_id,
+                "msg": f"ALERT: {ticker} {atype} @ ${price:,.2f}  ({sign}{chg_pct:.2f}%)",
+            })
+
+    return notifs[-20:]   # keep only last 20 to avoid unbounded growth
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REAL-TIME DATA  —  Portfolio price updates from in-memory tick store
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.callback(
+    Output("ticker-tape-inner", "children",  allow_duplicate=True),
+    Output("ticker-tape-inner", "className", allow_duplicate=True),
+    Input("interval-1s",        "n_intervals"),
+    State("store-portfolio",    "data"),
+    prevent_initial_call=True,
+)
+def update_tape_from_realtime(n_intervals, store_data):
+    """
+    Every second, refresh the ticker tape using real-time ticks if available.
+    Falls back to the portfolio store data (yfinance polling) when WebSocket is off.
+    """
+    if n_intervals % 10 != 0:   # only update every 10 seconds — avoids over-rendering
+        return dash.no_update, dash.no_update
+
+    if not realtime_data.is_streaming():
+        return dash.no_update, dash.no_update   # let the existing tape callback handle it
+
+    from dash import html as _html
+    FONT = "'IBM Plex Mono', monospace"
+
+    def _chip(label, price, chg_pct, color):
+        sign = "+" if chg_pct >= 0 else ""
+        return _html.Span([
+            _html.Span(label, style={"color": C["text_secondary"], "marginRight": "5px",
+                                     "fontFamily": FONT, "fontSize": "10px", "fontWeight": "700"}),
+            _html.Span(f"${price:,.2f}" if price else "N/A",
+                       style={"color": C["text_white"], "fontFamily": FONT, "fontSize": "10px",
+                              "marginRight": "4px"}),
+            _html.Span(f"{sign}{chg_pct:.2f}%",
+                       style={"color": color, "fontFamily": FONT, "fontSize": "10px",
+                              "marginRight": "20px"}),
+        ])
+
+    ticks = realtime_data.get_ticks()
+    chips = []
+    for sym, tick in ticks.items():
+        price   = tick.get("price", 0)
+        # chg_pct estimation: compare to store data if available
+        chg_pct = 0.0
+        if store_data and sym in store_data:
+            prev = store_data[sym].get("prev_close") or price
+            if prev:
+                chg_pct = (price - prev) / prev * 100
+        col = C["green"] if chg_pct >= 0 else C["red"]
+        chips.append(_chip(sym, price, chg_pct, col))
+
+    if not chips:
+        return dash.no_update, dash.no_update
+
+    doubled = chips * 2   # duplicate for seamless CSS scroll loop
+    return doubled, "tape-scroll"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STARTUP  —  Launch background workers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _start_background_services():
+    """
+    Launch all background daemon threads at app startup.
+    Called once at module import time (runs before the first request).
+    """
+    # 1. Signal scanner — scans every 5 minutes
+    signal_engine.start_background_scanner(extra_tickers=list(PORTFOLIO_TICKERS))
+
+    # 2. Alert engine — evaluates rules every 60 seconds
+    alert_engine.start_alert_engine()
+
+    # 3. Real-time data layer — WebSocket + polling fallback
+    realtime_data.start_realtime_layer(symbols=list(PORTFOLIO_TICKERS))
+
+
+_start_background_services()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

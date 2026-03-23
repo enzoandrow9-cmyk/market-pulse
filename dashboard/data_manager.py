@@ -8,6 +8,7 @@ import time
 import datetime
 import warnings
 import traceback
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -606,6 +607,109 @@ _SECTOR_TOP_HOLDINGS = {
     "XLU":  ["NEE",   "SO",    "DUK",   "AEP",   "SRE",   "EXC"],
 }
 
+# Approximate S&P 500 sector market-cap weights (used to size treemap tiles)
+_SECTOR_WEIGHTS = {
+    "XLK":  32.0, "XLF":  13.5, "XLV":  11.5, "XLC":   9.5,
+    "XLY":  10.0, "XLI":   8.5, "XLE":   3.5, "XLP":   5.5,
+    "XLB":   2.5, "XLRE":  2.0, "XLU":   2.5,
+}
+
+# yfinance period string + lookback trading days per UI period label
+_HEATMAP_YF_PERIOD = {"1D": "5d",  "1W": "10d", "1M": "45d",  "YTD": "ytd"}
+_HEATMAP_LOOKBACK  = {"1D":  1,    "1W":  5,    "1M":  21,     "YTD": None}
+
+_heatmap_cache = TTLCache(maxsize=8, ttl=300)   # 5-min cache
+
+
+def get_sector_heatmap_data(period: str = "1D") -> dict:
+    """
+    Batch-fetch all 11 sector ETFs + their top holdings for the hierarchical heatmap.
+
+    Returns
+    -------
+    dict:
+        sectors  — list of {symbol, name, chg_pct, price, weight}
+        holdings — {etf_symbol: [{symbol, chg_pct, price}, …]}
+    """
+    cache_key = f"heatmap_{period}"
+    if cache_key in _heatmap_cache:
+        return _heatmap_cache[cache_key]
+
+    # Collect every symbol needed in a single batch download
+    sector_syms = [sym for sym, _, _ in SECTORS if sym in _SECTOR_WEIGHTS]
+    all_holding_syms: list = []
+    for etf in sector_syms:
+        all_holding_syms.extend(_SECTOR_TOP_HOLDINGS.get(etf, []))
+
+    all_syms = list(dict.fromkeys(sector_syms + all_holding_syms))
+    yf_period = _HEATMAP_YF_PERIOD.get(period, "5d")
+
+    try:
+        raw = yf.download(
+            all_syms, period=yf_period, interval="1d",
+            auto_adjust=True, progress=False, threads=True,
+        )
+    except Exception as exc:
+        warnings.warn(f"get_sector_heatmap_data: download failed — {exc}")
+        return {}
+
+    if raw is None or raw.empty:
+        return {}
+
+    # Normalise to MultiIndex columns regardless of single vs multi-ticker download
+    if not isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = pd.MultiIndex.from_tuples([(c, all_syms[0]) for c in raw.columns])
+
+    def _closes(sym: str) -> Optional[pd.Series]:
+        try:
+            s = raw[("Close", sym)].dropna()
+            return s if not s.empty else None
+        except KeyError:
+            return None
+
+    lookback = _HEATMAP_LOOKBACK.get(period)
+
+    def _chg(sym: str) -> float:
+        s = _closes(sym)
+        if s is None or len(s) < 2:
+            return 0.0
+        if period == "YTD":
+            today = datetime.date.today()
+            ytd = s[s.index.date >= datetime.date(today.year, 1, 1)]
+            if len(ytd) < 2:
+                return 0.0
+            return float((ytd.iloc[-1] - ytd.iloc[0]) / ytd.iloc[0] * 100)
+        lb = min(lookback, len(s) - 1)
+        return float((s.iloc[-1] - s.iloc[-1 - lb]) / s.iloc[-1 - lb] * 100)
+
+    def _price(sym: str) -> float:
+        s = _closes(sym)
+        return float(s.iloc[-1]) if s is not None and not s.empty else 0.0
+
+    sectors_out = []
+    for sym, name, _ in SECTORS:
+        if sym not in _SECTOR_WEIGHTS:
+            continue
+        sectors_out.append({
+            "symbol":  sym,
+            "name":    name,
+            "chg_pct": _chg(sym),
+            "price":   _price(sym),
+            "weight":  _SECTOR_WEIGHTS[sym],
+        })
+
+    holdings_out: dict = {}
+    for etf in sector_syms:
+        h_list = []
+        for sym in _SECTOR_TOP_HOLDINGS.get(etf, []):
+            h_list.append({"symbol": sym, "chg_pct": _chg(sym), "price": _price(sym)})
+        holdings_out[etf] = h_list
+
+    result = {"sectors": sectors_out, "holdings": holdings_out}
+    _heatmap_cache[cache_key] = result
+    return result
+
+
 # Cache for holdings drill-down data (15-min TTL — same as briefing)
 _holdings_cache = TTLCache(maxsize=20, ttl=900)
 
@@ -614,41 +718,81 @@ def get_sector_holdings_data(etf_symbol: str, force_refresh: bool = False) -> li
     """
     Return live price/change/market-cap data for the top holdings of a sector ETF.
     Each dict contains: symbol, name, price, chg_pct, chg_abs, mkt_cap.
+
+    Uses a single batch yf.download() for prices and parallel threads for meta.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     cache_key = f"holdings_{etf_symbol}"
     if not force_refresh and cache_key in _holdings_cache:
         return _holdings_cache[cache_key]
 
     tickers = _SECTOR_TOP_HOLDINGS.get(etf_symbol, [])
+    if not tickers:
+        return []
+
+    # ── 1. Batch price download (one network round-trip for all tickers) ──────
+    try:
+        raw = yf.download(
+            tickers, period="5d", interval="1d",
+            auto_adjust=True, progress=False, threads=True,
+        )
+        if not isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = pd.MultiIndex.from_tuples(
+                [(c, tickers[0]) for c in raw.columns]
+            )
+    except Exception:
+        raw = pd.DataFrame()
+
+    # ── 2. Parallel metadata fetch (name + market cap) ───────────────────────
+    def _fetch_meta(sym: str):
+        name_key = f"name_{sym}"
+        if name_key in _meta_cache:
+            # Name cached — still need market cap
+            try:
+                mkt_cap = getattr(yf.Ticker(sym).fast_info, "market_cap", None) or 0
+            except Exception:
+                mkt_cap = 0
+            return sym, _meta_cache[name_key], mkt_cap
+        try:
+            t       = yf.Ticker(sym)
+            fi      = t.fast_info
+            mkt_cap = getattr(fi, "market_cap", None) or 0
+            try:
+                name = t.info.get("shortName") or t.info.get("longName") or sym
+            except Exception:
+                name = sym
+            _meta_cache[name_key] = name
+        except Exception:
+            name    = sym
+            mkt_cap = 0
+        return sym, name, mkt_cap
+
+    meta: dict = {}
+    with ThreadPoolExecutor(max_workers=min(6, len(tickers))) as ex:
+        futs = {ex.submit(_fetch_meta, s): s for s in tickers}
+        for fut in as_completed(futs):
+            try:
+                sym, name, mkt_cap = fut.result()
+                meta[sym] = (name, mkt_cap)
+            except Exception:
+                meta[futs[fut]] = (futs[fut], 0)
+
+    # ── 3. Assemble results ───────────────────────────────────────────────────
     results = []
     for sym in tickers:
         try:
-            t  = yf.Ticker(sym)
-            fi = t.fast_info
-
-            df = t.history(period="5d", interval="1d", auto_adjust=True)
-            if df is None or len(df) < 2:
+            col = ("Close", sym)
+            if col not in raw.columns:
                 continue
-            df.index = pd.to_datetime(df.index).tz_localize(None)
-            price    = _safe_float(df.iloc[-1]["Close"])
-            prev     = _safe_float(df.iloc[-2]["Close"])
-            chg_abs  = price - prev
-            chg_pct  = _pct_change(price, prev)
-
-            # Market cap from fast_info
-            mkt_cap  = getattr(fi, "market_cap", None) or 0
-
-            # Company name — use meta cache to avoid repeat lookups
-            name_key = f"name_{sym}"
-            if name_key in _meta_cache:
-                name = _meta_cache[name_key]
-            else:
-                try:
-                    name = t.info.get("shortName") or t.info.get("longName") or sym
-                except Exception:
-                    name = sym
-                _meta_cache[name_key] = name
-
+            series = raw[col].dropna()
+            if len(series) < 2:
+                continue
+            price   = float(series.iloc[-1])
+            prev    = float(series.iloc[-2])
+            chg_abs = price - prev
+            chg_pct = _pct_change(price, prev)
+            name, mkt_cap = meta.get(sym, (sym, 0))
             results.append({
                 "symbol":  sym,
                 "name":    name,
@@ -1548,10 +1692,19 @@ def _color_from_score(score: float) -> str:
     if score >= 25: return "#f97316"
     return "#ef4444"
 
+def _dl_close(sym: str, period: str) -> "pd.Series":
+    """Download daily close for a single symbol, handling yfinance MultiIndex columns."""
+    df = yf.download(sym, period=period, interval="1d", progress=False, auto_adjust=True)
+    if isinstance(df.columns, pd.MultiIndex):
+        return df[("Close", sym)].dropna()
+    return df["Close"].dropna()
+
+
 def get_fear_greed() -> dict:
     """
     Fetch the Fear & Greed index score (0–100).
-    Tries CNN's data endpoint first; falls back to a VIX-based calculation.
+    Tries CNN's graphdata endpoint first (with browser-like headers).
+    Falls back to a multi-factor VIX/momentum composite if the API is unavailable.
     Returns: {score, label, color, source, previous_close, previous_week, previous_month}
     """
     cache_key = "fng"
@@ -1561,70 +1714,95 @@ def get_fear_greed() -> dict:
     result = None
 
     # ── Attempt 1: CNN Fear & Greed endpoint ──────────────────────────────────
-    try:
-        resp = requests.get(
-            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=8,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            fg   = data.get("fear_and_greed", {})
-            score = float(fg.get("score", 50))
-            result = {
-                "score":          round(score, 1),
-                "label":          fg.get("rating", _label_from_score(score)).replace("_", " ").title(),
-                "color":          _color_from_score(score),
-                "source":         "CNN",
-                "previous_close": round(float(fg.get("previous_close", score)), 1),
-                "previous_week":  round(float(fg.get("previous_1_week", score)), 1),
-                "previous_month": round(float(fg.get("previous_1_month", score)), 1),
-            }
-    except Exception:
-        pass
+    _CNN_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0.0.0 Safari/537.36"
+        ),
+        "Accept":          "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer":         "https://www.cnn.com/markets/fear-and-greed",
+        "Origin":          "https://www.cnn.com",
+    }
+    for url in [
+        "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+        "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/",
+    ]:
+        try:
+            resp = requests.get(url, headers=_CNN_HEADERS, timeout=10)
+            if resp.status_code == 200:
+                data  = resp.json()
+                fg    = data.get("fear_and_greed", {})
+                score = float(fg.get("score", 50))
+                result = {
+                    "score":          round(score, 1),
+                    "label":          fg.get("rating", _label_from_score(score)).replace("_", " ").title(),
+                    "color":          _color_from_score(score),
+                    "source":         "CNN",
+                    "previous_close": round(float(fg.get("previous_close", score)), 1),
+                    "previous_week":  round(float(fg.get("previous_1_week", score)), 1),
+                    "previous_month": round(float(fg.get("previous_1_month", score)), 1),
+                }
+                break
+        except Exception:
+            continue
 
-    # ── Fallback: VIX-based composite ─────────────────────────────────────────
+    # ── Fallback: multi-factor VIX/momentum composite ────────────────────────
     if result is None:
         try:
-            vix_df  = yf.download("^VIX",  period="1mo", interval="1d", progress=False, auto_adjust=True)
-            spy_df  = yf.download("SPY",   period="6mo", interval="1d", progress=False, auto_adjust=True)
+            vix_close = _dl_close("^VIX",  "3mo")
+            spy_close = _dl_close("SPY",   "2y")
 
-            # VIX component: invert so high VIX = fear (low score)
-            vix_now  = float(vix_df["Close"].iloc[-1])
-            vix_comp = max(0, min(100, 100 - (vix_now - 10) * 3))
+            vix_now  = float(vix_close.iloc[-1])
 
-            # Momentum component: SPY vs 125-day MA
-            spy_close = spy_df["Close"]
-            ma125     = spy_close.rolling(125).mean().iloc[-1]
-            spy_now   = float(spy_close.iloc[-1])
-            mom_comp  = max(0, min(100, 50 + (spy_now - float(ma125)) / float(ma125) * 500))
+            # VIX component: invert — high VIX = extreme fear
+            def _vix_comp(v: float) -> float:
+                return max(0.0, min(100.0, 100.0 - (v - 10.0) * 3.0))
 
-            # 52-week high/low component
-            high52 = float(spy_close.rolling(252).max().iloc[-1])
-            low52  = float(spy_close.rolling(252).min().iloc[-1])
-            hl_comp = (spy_now - low52) / (high52 - low52) * 100 if high52 != low52 else 50
+            vix_comp = _vix_comp(vix_now)
 
-            score = round((vix_comp * 0.4 + mom_comp * 0.35 + hl_comp * 0.25), 1)
+            # Momentum: SPY vs 125-day MA
+            ma125    = float(spy_close.rolling(125).mean().iloc[-1])
+            spy_now  = float(spy_close.iloc[-1])
+            mom_comp = max(0.0, min(100.0, 50.0 + (spy_now - ma125) / ma125 * 500.0))
 
-            # Previous periods
-            vix_prev_close  = float(vix_df["Close"].iloc[-2]) if len(vix_df) > 1 else vix_now
-            prev_close_comp = max(0, min(100, 100 - (vix_prev_close - 10) * 3))
-            prev_score      = round((prev_close_comp * 0.4 + mom_comp * 0.35 + hl_comp * 0.25), 1)
+            # 52-week hi/low breadth
+            high52  = float(spy_close.rolling(252).max().iloc[-1])
+            low52   = float(spy_close.rolling(252).min().iloc[-1])
+            hl_comp = (spy_now - low52) / (high52 - low52) * 100.0 if high52 != low52 else 50.0
+
+            def _composite(v_comp: float) -> float:
+                return round(v_comp * 0.4 + mom_comp * 0.35 + hl_comp * 0.25, 1)
+
+            score = _composite(vix_comp)
+
+            # Previous-close: use yesterday's VIX
+            vix_prev     = float(vix_close.iloc[-2]) if len(vix_close) > 1 else vix_now
+            prev_close   = _composite(_vix_comp(vix_prev))
+
+            # Previous-week: VIX from ~5 sessions ago
+            vix_1w       = float(vix_close.iloc[-6]) if len(vix_close) > 5 else vix_prev
+            prev_week    = _composite(_vix_comp(vix_1w))
+
+            # Previous-month: VIX from ~21 sessions ago
+            vix_1m       = float(vix_close.iloc[-22]) if len(vix_close) > 21 else vix_1w
+            prev_month   = _composite(_vix_comp(vix_1m))
 
             result = {
                 "score":          score,
                 "label":          _label_from_score(score),
                 "color":          _color_from_score(score),
-                "source":         "Calculated",
-                "previous_close": prev_score,
-                "previous_week":  prev_score,
-                "previous_month": prev_score,
+                "source":         "Calculated (VIX + Momentum)",
+                "previous_close": prev_close,
+                "previous_week":  prev_week,
+                "previous_month": prev_month,
             }
         except Exception:
             result = {
                 "score": 50, "label": "Neutral", "color": "#fbbf24",
-                "source": "N/A", "previous_close": 50,
-                "previous_week": 50, "previous_month": 50,
+                "source": "N/A",
+                "previous_close": 50, "previous_week": 50, "previous_month": 50,
             }
 
     _fng_cache[cache_key] = result

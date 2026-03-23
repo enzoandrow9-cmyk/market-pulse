@@ -12,3 +12,5 @@ requests>=2.31.0
 gunicorn>=21.2.0
 anthropic>=0.25.0
 supabase>=2.3.0
+# ── New feature dependencies ──────────────────────────────────────────────────
+websocket-client>=1.7.0    # Alpaca WebSocket streaming (optional — fallback to polling if absent)
