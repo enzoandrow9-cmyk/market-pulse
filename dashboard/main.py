@@ -53,7 +53,7 @@ server.secret_key = os.environ.get("SECRET_KEY", "dev-local-key-change-in-prod")
 # DASH_AUTH_USERS env var: JSON dict of {"username": "password", ...}
 # Falls back to single DASH_AUTH_USER/DASH_AUTH_PASS for backwards compat.
 # Auth is skipped entirely when no env vars are set (local dev).
-def _build_user_dict() -> dict | None:
+def _build_user_dict():
     raw = os.environ.get("DASH_AUTH_USERS")
     if raw:
         try:

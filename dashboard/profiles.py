@@ -99,7 +99,7 @@ def save_settings(username: str, settings: dict) -> bool:
         return False
 
 
-def get_username_from_request() -> str | None:
+def get_username_from_request():
     """
     Extract the authenticated username from the current Flask request.
     Returns None if not authenticated or running locally without auth.
