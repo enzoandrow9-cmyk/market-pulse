@@ -172,6 +172,28 @@ def build_sidebar() -> html.Div:
             style=NAV_BTN_ACTIVE_STYLE if val == "portfolio" else NAV_BTN_STYLE,
         ) for icon, label, val in _NAV_TABS],
 
+        # Push logout to bottom of sidebar
+        html.Div(style={"flexGrow": "1"}),
+
+        # Logout link
+        html.A(
+            [
+                html.Span("⊘", style={"fontSize": "13px", "width": "18px",
+                                       "textAlign": "center", "flexShrink": "0"}),
+                html.Span("LOGOUT"),
+            ],
+            href="/logout",
+            style={
+                **NAV_BTN_STYLE,
+                "color":          C["text_dim"],
+                "borderTop":      f"1px solid {C['border']}",
+                "textDecoration": "none",
+                "display":        "flex",
+                "alignItems":     "center",
+                "flexShrink":     "0",
+            },
+        ),
+
     ], style={
         "position":    "fixed",
         "top":         "0",

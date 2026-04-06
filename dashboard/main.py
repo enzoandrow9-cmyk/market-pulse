@@ -17,8 +17,8 @@ from pathlib import Path
 import dash
 from dash import Input, Output, State, ALL, MATCH, callback_context, dcc
 import dash_bootstrap_components as dbc
-import dash_auth
 import plotly.graph_objects as go
+from auth import init_auth
 
 from config import C, PORTFOLIO_TICKERS, DEFAULT_SETTINGS
 import data_manager as dm
@@ -54,30 +54,15 @@ app = dash.Dash(
 )
 server = app.server  # for deployment if needed
 
-# ── Secret key for Flask session cookies ──────────────────────────────────────
-server.secret_key = os.environ.get("SECRET_KEY", "dev-local-key-change-in-prod")
+# ── Secret key (must be set via SECRET_KEY env var in production) ─────────────
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
+    import secrets as _sec
+    _secret = _sec.token_hex(32)   # ephemeral per-process key (fine for single worker)
+server.secret_key = _secret
 
-# ── Multi-user Basic Auth ──────────────────────────────────────────────────────
-# DASH_AUTH_USERS env var: JSON dict of {"username": "password", ...}
-# Falls back to single DASH_AUTH_USER/DASH_AUTH_PASS for backwards compat.
-# Auth is skipped entirely when no env vars are set (local dev).
-def _build_user_dict():
-    raw = os.environ.get("DASH_AUTH_USERS")
-    if raw:
-        try:
-            return json.loads(raw)
-        except Exception:
-            pass
-    # Legacy single-user fallback
-    u = os.environ.get("DASH_AUTH_USER")
-    p = os.environ.get("DASH_AUTH_PASS")
-    if u and p:
-        return {u: p}
-    return None
-
-_AUTH_USERS = _build_user_dict()
-if _AUTH_USERS:
-    dash_auth.BasicAuth(app, _AUTH_USERS)
+# ── Session-based auth (Supabase Auth + Flask sessions + rate limiting) ────────
+init_auth(server)
 
 import profiles  # noqa: E402  (import after app init so Flask context is ready)
 quantlab_runner = QuantLabRunner(output_root=str(Path(__file__).resolve().parent / "quantlab_runs"))

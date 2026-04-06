@@ -181,14 +181,12 @@ def save_settings(username: str, settings: dict) -> bool:
 
 def get_username_from_request():
     """
-    Extract the authenticated username from the current Flask request.
-    Returns None if not authenticated or running locally without auth.
+    Extract the authenticated user's email from the Flask session.
+    Returns None if not authenticated (session-based auth via auth.py).
     """
     try:
-        from flask import request
-        auth = request.authorization
-        if auth and auth.username:
-            return auth.username
+        from flask import session
+        return session.get("user_email") or None
     except Exception:
         pass
     return None
