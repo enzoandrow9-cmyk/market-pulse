@@ -1944,32 +1944,106 @@ app.clientside_callback(
 # COMMAND PALETTE  —  ⌘K / Ctrl+K Bloomberg-style command bar
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Clientside callback: toggle overlay visibility on ⌘K / Ctrl+K, close on ESC
+# Clientside callback: toggle overlay visibility on ⌘K / Ctrl+K, close on ESC / click
 app.clientside_callback(
     """
-    function(n_close, n_kbd) {
-        // Listen for Cmd/Ctrl+K to open, ESC to close
-        if (!window._cmdPaletteListenerAdded) {
-            window._cmdPaletteListenerAdded = true;
+    function(n_close, n_backdrop) {
+        // ── One-time setup: register helpers on window + keydown listener ───────
+        if (!window._cmdPaletteInit) {
+            window._cmdPaletteInit = true;
+            window._cmdSelIdx      = -1;
+
+            window._cmdClose = function() {
+                var o = document.getElementById('cmd-palette-overlay');
+                if (o) o.style.display = 'none';
+                window._cmdSelIdx = -1;
+            };
+
+            window._cmdOpen = function() {
+                var o = document.getElementById('cmd-palette-overlay');
+                if (!o) return;
+                o.style.display = 'block';
+                window._cmdSelIdx = -1;
+                setTimeout(function() {
+                    var inp = document.getElementById('cmd-input');
+                    if (!inp) return;
+                    inp.focus();
+                    // Clear via React's native setter so Dash sees the change
+                    try {
+                        var setter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value'
+                        ).set;
+                        setter.call(inp, '');
+                        inp.dispatchEvent(new Event('input', {bubbles: true}));
+                    } catch(ex) {
+                        inp.value = '';
+                    }
+                }, 60);
+            };
+
+            window._cmdSetSel = function(idx) {
+                var list = document.getElementById('cmd-suggestions');
+                if (!list) return;
+                var rows = list.children;
+                for (var i = 0; i < rows.length; i++) {
+                    var sel = (i === idx);
+                    rows[i].style.background  = sel ? '#151f35' : 'transparent';
+                    rows[i].style.borderLeft  = sel ? '2px solid var(--accent)' : '2px solid transparent';
+                }
+                window._cmdSelIdx = idx;
+            };
+
             document.addEventListener('keydown', function(e) {
                 var overlay = document.getElementById('cmd-palette-overlay');
                 if (!overlay) return;
+                var isOpen = overlay.style.display !== 'none' && overlay.style.display !== '';
+
+                // ⌘K / Ctrl+K — toggle
                 if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
                     e.preventDefault();
-                    var hidden = overlay.style.display === 'none' || overlay.style.display === '';
-                    overlay.style.display = hidden ? 'block' : 'none';
-                    if (hidden) {
-                        setTimeout(function() {
-                            var inp = document.getElementById('cmd-input');
-                            if (inp) inp.focus();
-                        }, 50);
-                    }
+                    if (isOpen) { window._cmdClose(); } else { window._cmdOpen(); }
+                    return;
                 }
+
+                if (!isOpen) return;
+
                 if (e.key === 'Escape') {
-                    overlay.style.display = 'none';
+                    window._cmdClose();
+
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    var list = document.getElementById('cmd-suggestions');
+                    var count = list ? list.children.length : 0;
+                    if (count > 0) {
+                        var next = Math.min((window._cmdSelIdx < 0 ? -1 : window._cmdSelIdx) + 1, count - 1);
+                        window._cmdSetSel(next);
+                    }
+
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    var list2 = document.getElementById('cmd-suggestions');
+                    var count2 = list2 ? list2.children.length : 0;
+                    if (count2 > 0) {
+                        var prev = Math.max((window._cmdSelIdx < 0 ? 0 : window._cmdSelIdx) - 1, 0);
+                        window._cmdSetSel(prev);
+                    }
+
+                } else if (e.key === 'Enter') {
+                    var list3 = document.getElementById('cmd-suggestions');
+                    var idx   = window._cmdSelIdx >= 0 ? window._cmdSelIdx : 0;
+                    if (list3 && list3.children[idx]) {
+                        list3.children[idx].click();
+                    }
                 }
             });
         }
+
+        // ── Close on backdrop or ESC-button click ────────────────────────────
+        var ctx = window.dash_clientside.callback_context;
+        if (ctx && ctx.triggered && ctx.triggered.length > 0) {
+            if (typeof window._cmdClose === 'function') window._cmdClose();
+        }
+
         return window.dash_clientside.no_update;
     }
     """,
@@ -2000,27 +2074,30 @@ def update_cmd_suggestions(query):
     rows = []
     for i, item in enumerate(matches):
         rows.append(_html.Div([
-            _html.Span("❯ ", style={
+            _html.Span("❯", className="cmd-prompt", style={
                 "color": "var(--accent)", "fontFamily": FONT,
-                "fontSize": "11px", "marginRight": "6px",
+                "fontSize": "11px", "marginRight": "10px", "flexShrink": "0",
             }),
-            _html.Span(item["cmd"], style={
+            _html.Span(item["cmd"], className="cmd-row-cmd", style={
                 "color": C["text_white"], "fontFamily": FONT,
                 "fontSize": "12px", "fontWeight": "700",
                 "letterSpacing": "0.06em", "marginRight": "14px",
-                "minWidth": "180px", "display": "inline-block",
+                "minWidth": "190px", "display": "inline-block",
             }),
             _html.Span(item["desc"], style={
                 "color": C["text_secondary"], "fontFamily": FONT, "fontSize": "11px",
             }),
         ], id={"type": "cmd-suggestion-row", "index": item["cmd"]},
            n_clicks=0,
+           className="cmd-row",
            style={
-               "padding":    "8px 18px",
+               "padding":    "9px 18px",
                "cursor":     "pointer",
                "background": C["bg_hover"] if i == 0 else "transparent",
                "display":    "flex",
                "alignItems": "center",
+               "borderLeft": "2px solid var(--accent)" if i == 0 else "2px solid transparent",
+               "transition": "border-color 0.08s",
            }))
 
     return rows

@@ -43,3 +43,23 @@
 .bloomberg-dropdown .Select-option.is-focused {
     background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
 }
+
+/* ── Command Palette ── */
+.cmd-row {
+    transition: background 0.08s ease;
+}
+.cmd-row:hover {
+    background: #151f35 !important;
+    cursor: pointer;
+}
+.cmd-row:hover .cmd-row-cmd {
+    color: var(--accent) !important;
+}
+/* Blinking cursor animation for the ❯ prompt */
+@keyframes cmdBlink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+}
+#cmd-palette-overlay .cmd-prompt {
+    animation: cmdBlink 1.2s ease-in-out infinite;
+}
