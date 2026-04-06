@@ -225,18 +225,21 @@ def update_nav_styles(active_tab):
 
 def _bg_prewarm_deepdive(tickers: list):
     """
-    Pre-fetch fundamentals, options flow, and news for every portfolio ticker
-    so the Deep Dive tab loads instantly (all three sources are cached).
+    Pre-fetch chart data (default period), fundamentals, and news for every
+    portfolio ticker so the Deep Dive tab loads instantly.
+    Capped at 3 workers to avoid hammering the yfinance rate limit.
     Runs in a daemon thread — never blocks the main portfolio refresh.
     """
     try:
-        n = max(1, min(len(tickers) * 3, 16))
-        with ThreadPoolExecutor(max_workers=n) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             futs = []
             for t in tickers:
+                # Chart at default period — the most common Deep Dive load
+                futs.append(pool.submit(dm.get_chart_data, t, "6mo", "1d"))
                 futs.append(pool.submit(dm.get_ticker_fundamentals, t))
-                futs.append(pool.submit(dm.get_options_flow, t))
                 futs.append(pool.submit(dm.get_ticker_news, t, 8))
+                # Skip options pre-warm — options cache TTL is only 2 min,
+                # pre-warming them here wastes a fetch before they're needed.
             for f in as_completed(futs):
                 try:
                     f.result()
@@ -359,9 +362,9 @@ def fetch_portfolio_data(n_intervals, n_clicks, settings, last_ts):
         pass
 
     try:
-        # Fetch all tickers in parallel — cuts startup from ~5 s to ~1 s
+        # Fetch all tickers in parallel — capped at 3 to stay within yfinance rate limits
         force = bool(forced)
-        n_workers = max(1, min(12, len(tickers)))
+        n_workers = max(1, min(3, len(tickers)))
         all_data = {}
         with ThreadPoolExecutor(max_workers=n_workers) as pool:
             future_to_t = {
@@ -924,11 +927,10 @@ _PERIOD_MAP = {
     Output("deepdive-outlook", "children"),
     Input("deepdive-ticker",   "value"),
     Input("deepdive-period",   "data"),
-    Input("store-refresh-ts",  "data"),
     State("user-settings",     "data"),
-    prevent_initial_call=False,
+    prevent_initial_call=True,
 )
-def update_deepdive(ticker, period, ts, settings):
+def update_deepdive(ticker, period, settings):
     if not ticker:
         return cb._empty_chart("Select a ticker"), dash.html.Div()
 
@@ -948,6 +950,9 @@ def update_deepdive(ticker, period, ts, settings):
             fundamentals = fut_fund.result()
             options_flow = fut_opts.result()
             news_articles= fut_news.result()
+
+        if chart_df is None or len(chart_df) < 2:
+            return cb._empty_chart(f"No data available for {ticker} at this timeframe"), dash.html.Div()
 
         # Signal data still comes from the standard 6mo daily cache (unchanged)
         data    = dm.get_ticker_data(ticker)
@@ -981,9 +986,13 @@ def update_deepdive(ticker, period, ts, settings):
     Output("fear-greed-gauge",     "figure"),
     Output("fear-greed-labels",    "children"),
     Input("store-refresh-ts",      "data"),
+    Input("main-tabs",             "value"),
     prevent_initial_call=False,
 )
-def update_market_monitor(ts):
+def update_market_monitor(ts, active_tab):
+    # Only run expensive market fetches when the market tab is visible
+    if active_tab != "market":
+        return (dash.no_update,) * 8
     from dash import html as dhtml
 
     # Futures strip
@@ -2141,14 +2150,18 @@ def execute_command(suggestion_clicks, n_submit, cmd_text):
     Input("signals-poll-interval","n_intervals"),
     Input("signals-scan-btn",     "n_clicks"),
     Input("user-settings",        "data"),
+    State("main-tabs",            "value"),
     prevent_initial_call=False,
 )
-def update_signals_tab(n_intervals, n_clicks, settings):
+def update_signals_tab(n_intervals, n_clicks, settings, active_tab):
     """
     Populate the signals tab cards from the background scanner's cached results.
     If the user clicks 'SCAN NOW', triggers an immediate foreground scan
     (runs in a short background thread so it doesn't block the callback).
     """
+    # Only scan when signals tab is active (avoids background scans on every settings change)
+    if active_tab != "signals" and n_clicks in (None, 0):
+        return dash.no_update, dash.no_update
     ctx = callback_context
     triggered = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
 

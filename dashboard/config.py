@@ -208,7 +208,7 @@ DEFAULT_SETTINGS = {
 PERIOD           = "6mo"      # yfinance period for charts
 INTERVAL         = "1d"       # daily bars
 REFRESH_SECONDS  = 60         # auto-refresh interval (seconds)
-CACHE_TTL        = 300        # cache time-to-live in seconds (5 min)
+CACHE_TTL        = 900        # cache time-to-live in seconds (15 min)
 
 # ── News RSS sources ──────────────────────────────────────────────────────────
 NEWS_SOURCES = [
