@@ -14,6 +14,23 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+# Load .env file for local development (no external dependencies)
+def _load_env():
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+_load_env()
+
 import dash
 from dash import Input, Output, State, ALL, MATCH, callback_context, dcc
 import dash_bootstrap_components as dbc
