@@ -433,7 +433,7 @@ _PAGE_HTML = """<!DOCTYPE html>
       if (val.length >= 8)                                                    score++;
       if (/[A-Z]/.test(val) && /[a-z]/.test(val))                           score++;
       if (/[0-9]/.test(val))                                                  score++;
-      if (/[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(val))              score++;
+      if (/[!@#$%^&*()\\_=+\[\]{};:'",.<>/?|`~-]/.test(val))               score++;
       var cfg = [
         { pct:  0, bg: 'var(--border)',  label: 'Enter a password',     color: 'var(--dim)' },
         { pct: 25, bg: 'var(--red)',     label: 'WEAK',                  color: 'var(--red)' },
