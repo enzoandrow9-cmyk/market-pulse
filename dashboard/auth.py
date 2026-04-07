@@ -32,15 +32,29 @@ from flask import (
 
 logger = logging.getLogger(__name__)
 
-# ─── Rate limiter ─────────────────────────────────────────────────────────────
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+# ─── Rate limiter (built-in, no external dependency) ─────────────────────────
+import time
+from collections import defaultdict
+from functools import wraps
 
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[],          # no global limit; applied per-route
-    storage_uri="memory://",    # single-worker; upgrade to redis:// for multi
-)
+_rl_store: dict = defaultdict(list)
+
+
+def _rate_limit(max_calls: int, window_seconds: int):
+    """Sliding-window in-memory rate limiter decorator."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            key = f"{f.__name__}:{request.remote_addr}"
+            now = time.time()
+            cutoff = now - window_seconds
+            _rl_store[key] = [t for t in _rl_store[key] if t > cutoff]
+            if len(_rl_store[key]) >= max_calls:
+                return "Too many requests — slow down.", 429
+            _rl_store[key].append(now)
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
 
 # ─── Blueprint ────────────────────────────────────────────────────────────────
 auth_bp = Blueprint("auth", __name__)
@@ -183,7 +197,6 @@ def init_auth(app) -> None:
     Attach authentication to the Flask/Dash app.
     Call once in main.py immediately after `server = app.server`.
     """
-    limiter.init_app(app)
     app.register_blueprint(auth_bp)
 
     is_prod = os.environ.get("PRODUCTION", "").lower() in ("1", "true", "yes")
@@ -604,7 +617,7 @@ def login_get():
 
 
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit("10 per minute; 30 per hour")
+@_rate_limit(10, 60)
 def login_post():
     if not _csrf_valid(request.form.get("csrf_token")):
         return _render("login", error="Invalid request token — please refresh and try again.")
@@ -659,7 +672,7 @@ def register_get():
 
 
 @auth_bp.route("/register", methods=["POST"])
-@limiter.limit("5 per minute; 15 per hour")
+@_rate_limit(5, 60)
 def register_post():
     if not _csrf_valid(request.form.get("csrf_token")):
         return _render("register", error="Invalid request token — please refresh and try again.")
@@ -730,7 +743,7 @@ def forgot_get():
 
 
 @auth_bp.route("/forgot-password", methods=["POST"])
-@limiter.limit("5 per minute; 10 per hour")
+@_rate_limit(5, 60)
 def forgot_post():
     if not _csrf_valid(request.form.get("csrf_token")):
         return render_template_string(
