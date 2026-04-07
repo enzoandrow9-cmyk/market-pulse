@@ -712,6 +712,9 @@ def register_post():
         err = str(exc).lower()
         if any(k in err for k in ("already registered", "already exists", "email address is already")):
             msg = "An account with that email already exists."
+        elif "rate limit" in err or "over_email_send_rate_limit" in err or "429" in err:
+            msg = ("Email rate limit reached — Supabase allows 2 verification emails per hour. "
+                   "Wait an hour and try again, or contact the admin to set up custom SMTP.")
         else:
             logger.error(f"auth: register error email={email} exc={exc}")
             msg = "Registration failed — please try again."
