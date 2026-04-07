@@ -61,7 +61,7 @@ SP500_UNIVERSE: List[str] = [
 
 NASDAQ100_EXTRA: List[str] = [
     "ASML", "MELI", "CDNS", "SNPS", "MRVL", "CRWD", "DDOG", "ZS",
-    "TEAM", "WDAY", "TTD",  "SGEN", "IDXX", "ILMN", "BIIB",
+    "TEAM", "WDAY", "TTD",  "EXAS", "IDXX", "ILMN", "BIIB",
 ]
 
 FULL_UNIVERSE: List[str] = list(dict.fromkeys(SP500_UNIVERSE + NASDAQ100_EXTRA))
