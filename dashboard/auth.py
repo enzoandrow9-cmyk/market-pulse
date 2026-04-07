@@ -46,7 +46,7 @@ limiter = Limiter(
 auth_bp = Blueprint("auth", __name__)
 
 # ─── Paths exempt from the auth gate ─────────────────────────────────────────
-_PUBLIC_EXACT = {"/login", "/register", "/logout", "/forgot-password"}
+_PUBLIC_EXACT = {"/login", "/register", "/logout", "/forgot-password", "/auth/callback"}
 _PUBLIC_PREFIX = (
     "/_dash-component-suites/",
     "/assets/",
@@ -513,12 +513,87 @@ _FORGOT_HTML = """<!DOCTYPE html>
 </html>"""
 
 
+# ─── Email verification callback page ────────────────────────────────────────
+
+_CALLBACK_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Market Pulse — Email Verified</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#060b19;--panel:#0d1526;--border:#1e2d4a;--accent:#fbbf24;
+          --text:#e2e8f0;--dim:#4a6080;--green:#22c55e;--red:#f87171;
+          --font:'IBM Plex Mono','Courier New',monospace}
+    body{background:var(--bg);color:var(--text);font-family:var(--font);
+         min-height:100vh;display:flex;flex-direction:column;
+         align-items:center;justify-content:center;padding:24px;text-align:center}
+    .logo{color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.20em;
+          text-transform:uppercase;margin-bottom:8px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;
+          width:100%;max-width:380px;padding:36px 28px;
+          box-shadow:0 24px 80px rgba(0,0,0,.65);margin-top:24px}
+    .icon{font-size:32px;margin-bottom:16px}
+    .title{font-size:13px;font-weight:700;letter-spacing:.10em;
+           text-transform:uppercase;margin-bottom:10px}
+    .title.ok{color:var(--green)}
+    .title.err{color:var(--red)}
+    .msg{font-size:11px;color:var(--dim);line-height:1.7;letter-spacing:.04em}
+    .btn{display:inline-block;margin-top:24px;padding:12px 28px;
+         background:var(--accent);color:#060b19;border-radius:3px;
+         font-family:var(--font);font-size:11px;font-weight:700;
+         letter-spacing:.12em;text-transform:uppercase;text-decoration:none}
+    .btn:hover{opacity:.85}
+  </style>
+</head>
+<body>
+  <div class="logo">▦ &nbsp;Market Pulse Terminal</div>
+  <div class="card">
+    {% if error %}
+      <div class="icon">✗</div>
+      <div class="title err">Verification Failed</div>
+      <div class="msg">{{ error }}<br><br>
+        The link may have expired — registration links are valid for 24 hours.
+        Try registering again to receive a fresh link.
+      </div>
+      <a class="btn" href="/login">← Back to login</a>
+    {% else %}
+      <div class="icon" style="color:var(--green)">✓</div>
+      <div class="title ok">Email Verified</div>
+      <div class="msg">Your account has been confirmed.<br>
+        You can now sign in with your credentials.
+      </div>
+      <a class="btn" href="/login">→ &nbsp;Sign In</a>
+    {% endif %}
+  </div>
+</body>
+</html>"""
+
+
 # ─── Route handlers ───────────────────────────────────────────────────────────
 
 def _render(mode: str, error=None, success=None):
     return render_template_string(
         _PAGE_HTML, mode=mode, error=error, success=success, csrf=_csrf_token()
     )
+
+
+@auth_bp.route("/auth/callback", methods=["GET"])
+def auth_callback():
+    """
+    Landing page after Supabase email verification link is clicked.
+    Supabase verifies the OTP server-side, then redirects here.
+    If there's an error param in the URL, show the failure page.
+    Otherwise show success and let the user sign in normally.
+    """
+    error_code = request.args.get("error_code") or request.args.get("error")
+    if error_code:
+        desc = request.args.get("error_description", "Verification failed.")
+        desc = desc.replace("+", " ")
+        return render_template_string(_CALLBACK_HTML, error=desc), 400
+    return render_template_string(_CALLBACK_HTML, error=None)
 
 
 @auth_bp.route("/login", methods=["GET"])
@@ -608,7 +683,12 @@ def register_post():
         return _render("register", error="Authentication service unavailable. Contact admin.")
 
     try:
-        res = supa.auth.sign_up({"email": email, "password": pw})
+        callback_url = request.host_url.rstrip("/") + "/auth/callback"
+        res = supa.auth.sign_up({
+            "email": email,
+            "password": pw,
+            "options": {"email_redirect_to": callback_url},
+        })
         if not res.user:
             raise ValueError("no user returned")
         _audit("register", email, True)
